@@ -4,12 +4,22 @@ import ApplicationServices
 
 struct PaletteView: View {
     let itemSize: CGFloat
+    let layout: PaletteLayout
     let perform: (Action) -> Void
-    private let actions: [Action] = [.maximize, .left, .right, .top, .bottom, .center, .restore]
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(actions, id: \.self) { action in
-                PaletteButton(action: action, size: itemSize) { perform(action) }
+        Grid(horizontalSpacing: 4, verticalSpacing: 4) {
+            ForEach(0..<PaletteLayout.rows, id: \.self) { row in
+                GridRow {
+                    ForEach(0..<PaletteLayout.columns, id: \.self) { column in
+                        let action = layout.cells[row * PaletteLayout.columns + column]
+                        if let action {
+                            PaletteButton(action: action, size: itemSize) { perform(action) }
+                                .frame(width: itemSize, height: itemSize)
+                        } else {
+                            Color.clear.frame(width: itemSize, height: itemSize).accessibilityHidden(true)
+                        }
+                    }
+                }
             }
         }.padding(8).fixedSize()
     }
@@ -23,7 +33,7 @@ private struct PaletteButton: NSViewRepresentable {
     let perform: () -> Void
     func makeCoordinator() -> Coordinator { Coordinator(perform) }
     func makeNSView(context: Context) -> NSButton {
-        let button = NSButton(image: icon(), target: context.coordinator, action: #selector(Coordinator.click))
+        let button = NSButton(image: PaletteIcon.image(for: action), target: context.coordinator, action: #selector(Coordinator.click))
         button.bezelStyle = .recessed
         button.isBordered = true
         button.showsBorderOnlyWhileMouseInside = true
@@ -46,7 +56,10 @@ private struct PaletteButton: NSViewRepresentable {
         init(_ perform: @escaping () -> Void) { self.perform = perform }
         @objc func click() { perform() }
     }
-    private func icon() -> NSImage {
+}
+
+enum PaletteIcon {
+    static func image(for action: Action) -> NSImage {
         if action == .restore {
             return NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: action.title)!
         }
@@ -105,6 +118,7 @@ final class PaletteController: NSObject, NSPopoverDelegate {
     private var enabled = false
     private var delay = 0.3
     private var itemSize: CGFloat = 34
+    private var layout = PaletteLayout.standard
     private var appearance: NSAppearance?
     private let system = AXUIElementCreateSystemWide()
     var perform: ((Action, AXUIElement) -> Void)?
@@ -124,11 +138,12 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         }
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in self?.dismiss() })
     }
-    func configure(enabled: Bool, delay: Double, itemSize: CGFloat, appearance: NSAppearance?) {
+    func configure(enabled: Bool, delay: Double, itemSize: CGFloat, layout: PaletteLayout, appearance: NSAppearance?) {
         self.enabled = enabled
         self.delay = min(max(delay, 0.15), 1)
         self.itemSize = min(max(itemSize, 30), 44)
         self.appearance = appearance
+        self.layout = layout
         dismiss()
         removeMonitors()
         guard enabled else { return }
@@ -265,9 +280,10 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         guard enabled, WindowManager.trusted, let target, target.frame.insetBy(dx: -2, dy: -2).contains(NSEvent.mouseLocation),
               !NSEvent.modifierFlags.contains(.command), let currentFrame = frame(target.button),
               abs(currentFrame.minX - target.frame.minX) < 2, abs(currentFrame.minY - target.frame.minY) < 2 else { dismiss(); return }
-        let size = CGSize(width: itemSize * 7 + 4 * 6 + 16, height: itemSize + 16)
+        let gridSize = layout.size(itemSize: itemSize)
+        let size = CGSize(width: gridSize.width + 16, height: gridSize.height + 16)
         guard let anchor = shield?.contentView, anchor.window != nil else { dismiss(); return }
-        let host = NSHostingView(rootView: PaletteView(itemSize: itemSize) { [weak self] action in
+        let host = NSHostingView(rootView: PaletteView(itemSize: itemSize, layout: layout) { [weak self] action in
             guard let self else { return }
             self.dismiss()
             self.perform?(action, target.window)

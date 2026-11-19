@@ -32,6 +32,13 @@ final class SettingsModel: ObservableObject {
     @Published var paletteItemSize = UserDefaults.standard.object(forKey: "paletteItemSize") as? Double ?? 34 {
         didSet { UserDefaults.standard.set(paletteItemSize, forKey: "paletteItemSize"); onPaletteChanged?() }
     }
+    @Published var paletteLayout = PaletteLayout(data: UserDefaults.standard.data(forKey: "paletteGridV1")) {
+        didSet { UserDefaults.standard.set(paletteLayout.data, forKey: "paletteGridV1"); onPaletteChanged?() }
+    }
+    func movePaletteAction(_ action: Action, to destination: Int) {
+        var updated = paletteLayout
+        if updated.move(action, to: destination) { paletteLayout = updated }
+    }
     var onPaletteChanged: (() -> Void)?
     var onAppearanceChanged: (() -> Void)?
     let shortcuts: Shortcuts
@@ -133,9 +140,19 @@ struct SettingsView: View {
                 } footer: {
                     Text("按住 Command 可使用系统绿点菜单。移开鼠标、点击外部或按 Esc 关闭面板。需要辅助功能权限。")
                 }
-                Section("布局预览") {
-                    PaletteView(itemSize: model.paletteItemSize) { _ in }
-                        .allowsHitTesting(false).accessibilityLabel("最大化、左半屏、右半屏、上半屏、下半屏、居中、还原")
+                Section {
+                    PaletteGridEditor(layout: model.paletteLayout, itemSize: model.paletteItemSize) { action, destination in
+                        model.movePaletteAction(action, to: destination)
+                    }
+                    .frame(width: model.paletteLayout.size(itemSize: model.paletteItemSize).width,
+                           height: model.paletteLayout.size(itemSize: model.paletteItemSize).height)
+                    HStack {
+                        Text("10 列 × 6 行").foregroundStyle(.secondary)
+                        Spacer()
+                        Button("恢复默认布局") { model.paletteLayout = .standard }
+                    }
+                } header: { Text("布局预览") } footer: {
+                    Text("拖拽图标到任意格子；拖到已有图标的格子时交换位置。修改即时应用并自动保存。")
                 }
             case .shortcuts:
                 shortcutSection("分屏布局", actions: [.left, .right, .top, .bottom], introductoryText: "点击快捷键开始录制，按 Esc 取消。清除后仍可从菜单栏使用。")
@@ -342,7 +359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         configurePalette()
     }
     private func configurePalette() {
-        palette.configure(enabled: settings.paletteEnabled, delay: settings.paletteDelay, itemSize: settings.paletteItemSize, appearance: settings.theme.appearance)
+        palette.configure(enabled: settings.paletteEnabled, delay: settings.paletteDelay, itemSize: settings.paletteItemSize, layout: settings.paletteLayout, appearance: settings.theme.appearance)
     }
     @objc func toggleQuickPanel() {
         guard let button = status.button else { return }
