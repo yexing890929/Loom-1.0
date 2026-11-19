@@ -23,6 +23,16 @@ final class SettingsModel: ObservableObject {
     @Published var theme = AppTheme(rawValue: UserDefaults.standard.string(forKey: "theme") ?? "浅色") ?? .light {
         didSet { UserDefaults.standard.set(theme.rawValue, forKey: "theme"); onAppearanceChanged?() }
     }
+    @Published var paletteEnabled = UserDefaults.standard.object(forKey: "paletteEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(paletteEnabled, forKey: "paletteEnabled"); onPaletteChanged?() }
+    }
+    @Published var paletteDelay = UserDefaults.standard.object(forKey: "paletteDelay") as? Double ?? 0.3 {
+        didSet { UserDefaults.standard.set(paletteDelay, forKey: "paletteDelay"); onPaletteChanged?() }
+    }
+    @Published var paletteItemSize = UserDefaults.standard.object(forKey: "paletteItemSize") as? Double ?? 34 {
+        didSet { UserDefaults.standard.set(paletteItemSize, forKey: "paletteItemSize"); onPaletteChanged?() }
+    }
+    var onPaletteChanged: (() -> Void)?
     var onAppearanceChanged: (() -> Void)?
     let shortcuts: Shortcuts
     var monitor: Any?
@@ -67,9 +77,9 @@ struct SettingsView: View {
     @ObservedObject var model: SettingsModel
     let page: Page
     enum Page: String, CaseIterable {
-        case general = "通用", shortcuts = "快捷键", permissions = "权限", about = "关于"
+        case general = "通用", palette = "Palette", shortcuts = "快捷键", permissions = "权限", about = "关于"
         var symbol: String {
-            switch self { case .general: return "gearshape"; case .shortcuts: return "keyboard"; case .permissions: return "lock.shield"; case .about: return "info.circle" }
+            switch self { case .general: return "gearshape"; case .palette: return "rectangle.3.group"; case .shortcuts: return "keyboard"; case .permissions: return "lock.shield"; case .about: return "info.circle" }
         }
     }
     var body: some View {
@@ -105,6 +115,27 @@ struct SettingsView: View {
                 }
                 Section {
                     SettingsRow("应用") { Button("退出 Loom") { NSApp.terminate(nil) } }
+                }
+            case .palette:
+                Section {
+                    SettingsRow("绿点悬浮面板") {
+                        Toggle("绿点悬浮面板", isOn: $model.paletteEnabled).labelsHidden().toggleStyle(.switch)
+                    }
+                    SettingsRow("悬停延迟") {
+                        Slider(value: $model.paletteDelay, in: 0.15...1, step: 0.05).frame(width: 160)
+                        Text(String(format: "%.2f 秒", model.paletteDelay)).monospacedDigit().frame(width: 64, alignment: .trailing)
+                    }.disabled(!model.paletteEnabled)
+                    SettingsRow("按钮大小") {
+                        Slider(value: $model.paletteItemSize, in: 30...44, step: 2).frame(width: 160)
+                    }.disabled(!model.paletteEnabled)
+                } header: {
+                    settingsHeading("Palette 悬浮面板", subtitle: "将指针停在前台应用窗口的绿色按钮上，快速选择窗口布局。")
+                } footer: {
+                    Text("按住 Command 可使用系统绿点菜单。移开鼠标、点击外部或按 Esc 关闭面板。需要辅助功能权限。")
+                }
+                Section("布局预览") {
+                    PaletteView(itemSize: model.paletteItemSize) { _ in }
+                        .allowsHitTesting(false).accessibilityLabel("最大化、左半屏、右半屏、上半屏、下半屏、居中、还原")
                 }
             case .shortcuts:
                 shortcutSection("分屏布局", actions: [.left, .right, .top, .bottom], introductoryText: "点击快捷键开始录制，按 Esc 取消。清除后仍可从菜单栏使用。")
@@ -248,6 +279,7 @@ final class SettingsTabs: NSTabViewController {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     let manager = WindowManager()
+    let palette = PaletteController()
     let shortcuts = Shortcuts()
     lazy var settings = SettingsModel(shortcuts)
     var status: NSStatusItem!
@@ -283,6 +315,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         status.button?.target = self
         status.button?.action = #selector(toggleQuickPanel)
+        palette.perform = { [weak self] action, window in self?.run(action, target: window) }
+        settings.onPaletteChanged = { [weak self] in self?.configurePalette() }
         settings.onAppearanceChanged = { [weak self] in self?.applyAppearance() }
         applyAppearance()
         shortcuts.onAction = { [weak self] action in
@@ -305,9 +339,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         status.button?.title = settings.showName ? " Loom" : ""
         status.button?.imagePosition = settings.showName ? .imageLeading : .imageOnly
         NSApp.appearance = settings.theme.appearance
+        configurePalette()
+    }
+    private func configurePalette() {
+        palette.configure(enabled: settings.paletteEnabled, delay: settings.paletteDelay, itemSize: settings.paletteItemSize, appearance: settings.theme.appearance)
     }
     @objc func toggleQuickPanel() {
         guard let button = status.button else { return }
+        palette.dismiss()
         menuTarget = manager.focusedWindow()
         let menu = NSMenu()
         // A nil menu appearance inherits the status bar's wallpaper-dependent
@@ -429,6 +468,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if alert.runModal() == .alertSecondButtonReturn { WindowManager.openPermissionSettings() }
     }
     @objc func showSettings() {
+        palette.dismiss()
         if window == nil {
             let tabs = SettingsTabs()
             tabs.tabStyle = .toolbar
@@ -455,6 +495,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         NSApp.activate(ignoringOtherApps: true); window?.makeKeyAndOrderFront(nil)
     }
     func windowWillClose(_ notification: Notification) { settings.stopRecording() }
+    func applicationWillTerminate(_ notification: Notification) { palette.dismiss() }
     @objc func quit() { NSApp.terminate(nil) }
 }
 let app = NSApplication.shared
