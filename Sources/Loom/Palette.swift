@@ -15,36 +15,57 @@ struct PaletteView: View {
     }
 }
 
-private struct PaletteButton: View {
+// AppKit draws the bezel, hover, pressed and disabled states. Only the layout
+// pictogram is authored; the surrounding control has no custom background colors.
+private struct PaletteButton: NSViewRepresentable {
     let action: Action
     let size: CGFloat
     let perform: () -> Void
-    @State private var hovered = false
-    var body: some View {
-        Button(action: perform) {
-            Group {
-                if action == .restore {
-                    Image(systemName: "arrow.uturn.backward").font(.system(size: 16, weight: .medium))
-                } else {
-                    GeometryReader { geometry in
-                        let box = CGRect(x: 1, y: 3, width: geometry.size.width - 2, height: geometry.size.height - 6)
-                        ZStack(alignment: .topLeading) {
-                            RoundedRectangle(cornerRadius: 2).strokeBorder(.primary, lineWidth: 1.4)
-                                .frame(width: box.width, height: box.height).offset(x: box.minX, y: box.minY)
-                            let inner = box.insetBy(dx: 3, dy: 3)
-                            let fill = action == .center
-                                ? CGRect(x: inner.midX - inner.width * 0.3, y: inner.midY - inner.height * 0.3, width: inner.width * 0.6, height: inner.height * 0.6)
-                                : Layout.frame(action, window: .zero, visible: inner)
-                            RoundedRectangle(cornerRadius: 0.6).fill(.primary)
-                                .frame(width: fill.width, height: fill.height).offset(x: fill.minX, y: fill.minY)
-                        }
-                    }.frame(width: 25, height: 23)
-                }
-            }.frame(width: size, height: size).contentShape(Rectangle())
-        }.buttonStyle(.plain)
-            .foregroundStyle(hovered ? Color.white : Color.primary)
-            .background(hovered ? Color.accentColor : Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
-            .onHover { hovered = $0 }.help(action.title).accessibilityLabel(action.title)
+    func makeCoordinator() -> Coordinator { Coordinator(perform) }
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(image: icon(), target: context.coordinator, action: #selector(Coordinator.click))
+        button.bezelStyle = .recessed
+        button.isBordered = true
+        button.showsBorderOnlyWhileMouseInside = true
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleNone
+        button.setButtonType(.momentaryPushIn)
+        button.controlSize = .regular
+        button.toolTip = action.title
+        button.setAccessibilityLabel(action.title)
+        return button
+    }
+    func updateNSView(_ button: NSButton, context: Context) {
+        context.coordinator.perform = perform
+    }
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSButton, context: Context) -> CGSize? {
+        CGSize(width: size, height: size)
+    }
+    final class Coordinator: NSObject {
+        var perform: () -> Void
+        init(_ perform: @escaping () -> Void) { self.perform = perform }
+        @objc func click() { perform() }
+    }
+    private func icon() -> NSImage {
+        if action == .restore {
+            return NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: action.title)!
+        }
+        let image = NSImage(size: NSSize(width: 25, height: 23), flipped: true) { _ in
+            NSColor.black.setStroke()
+            let box = CGRect(x: 1.5, y: 3.5, width: 22, height: 16)
+            let outline = NSBezierPath(roundedRect: box, xRadius: 2, yRadius: 2)
+            outline.lineWidth = 1.4
+            outline.stroke()
+            let inner = box.insetBy(dx: 3, dy: 3)
+            let fill = action == .center
+                ? CGRect(x: inner.midX - inner.width * 0.3, y: inner.midY - inner.height * 0.3, width: inner.width * 0.6, height: inner.height * 0.6)
+                : Layout.frame(action, window: .zero, visible: inner)
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: fill, xRadius: 0.6, yRadius: 0.6).fill()
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 }
 
@@ -245,8 +266,12 @@ final class PaletteController {
             self.perform?(action, target.window)
         })
         let material = NSVisualEffectView(frame: CGRect(origin: .zero, size: size))
-        material.material = .popover; material.blendingMode = .behindWindow; material.state = .active
-        material.wantsLayer = true; material.layer?.cornerRadius = 10; material.layer?.masksToBounds = true
+        // Use the native popover material; the OS supplies its tint and blur
+        // for the selected Aqua/Dark Aqua appearance and accessibility settings.
+        material.material = .popover
+        material.blendingMode = .behindWindow
+        material.state = .active
+        material.wantsLayer = true; material.layer?.cornerRadius = 12; material.layer?.masksToBounds = true
         host.frame = material.bounds; host.autoresizingMask = [.width, .height]
         material.addSubview(host)
         let result = makePanel(rect)
