@@ -25,11 +25,46 @@ struct PaletteView: View {
     }
 }
 
-// AppKit draws the bezel, hover, pressed and disabled states. Only the layout
-// pictogram is authored; the surrounding control has no custom background colors.
+// Keep native button hit testing/actions while matching the system tiling
+// palette's explicit blue-hover/white-icon treatment in a nonactivating window.
 private final class PaletteButtonControl: NSButton {
+    private var hoverTracking: NSTrackingArea?
+    private var hovered = false
+    private var paletteAction: Action?
+    private var paletteSize: CGFloat = 34
     override var allowsVibrancy: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    func configure(action: Action, size: CGFloat) {
+        paletteAction = action
+        paletteSize = size
+        wantsLayer = true
+        layer?.cornerRadius = 7
+        refreshStyle()
+    }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        hoverTracking = area
+        if let window {
+            hovered = bounds.contains(convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil))
+        }
+        refreshStyle()
+    }
+    override func mouseEntered(with event: NSEvent) { hovered = true; refreshStyle() }
+    override func mouseExited(with event: NSEvent) { hovered = false; refreshStyle() }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshStyle()
+    }
+    private func refreshStyle() {
+        guard let paletteAction else { return }
+        let active = hovered && isEnabled
+        layer?.backgroundColor = active ? NSColor(srgbRed: 82 / 255, green: 159 / 255, blue: 1, alpha: 1).cgColor : NSColor.clear.cgColor
+        image = PaletteIcon.image(for: paletteAction, itemSize: paletteSize, ink: active ? .white : PaletteChromeView.iconColor)
+        needsDisplay = true
+    }
 }
 
 private struct PaletteButton: NSViewRepresentable {
@@ -48,11 +83,12 @@ private struct PaletteButton: NSViewRepresentable {
         button.controlSize = .regular
         button.toolTip = action.title
         button.setAccessibilityLabel(action.title)
+        button.configure(action: action, size: size)
         return button
     }
     func updateNSView(_ button: NSButton, context: Context) {
         context.coordinator.perform = perform
-        button.image = PaletteIcon.image(for: action, itemSize: size, ink: PaletteChromeView.iconColor)
+        (button as? PaletteButtonControl)?.configure(action: action, size: size)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSButton, context: Context) -> CGSize? {
         CGSize(width: size, height: size)

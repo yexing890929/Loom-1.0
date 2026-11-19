@@ -13,6 +13,7 @@ final class PaletteChromeView: NSView {
     }
     private let placement: PaletteGeometry.ChromePlacement
     private let border = CAShapeLayer()
+    private let tint = CAGradientLayer()
     init(placement: PaletteGeometry.ChromePlacement, content: NSView) {
         self.placement = placement
         super.init(frame: CGRect(origin: .zero, size: placement.frame.size))
@@ -28,7 +29,13 @@ final class PaletteChromeView: NSView {
         mask.frame = material.bounds
         mask.path = path
         material.layer?.mask = mask
+        tint.frame = material.bounds
+        tint.startPoint = CGPoint(x: 0.5, y: 1)
+        tint.endPoint = CGPoint(x: 0.5, y: 0)
+        tint.locations = [0, 0.55, 1]
+        material.layer?.addSublayer(tint)
         addSubview(material)
+        content.wantsLayer = true
         content.frame = placement.bodyRect
         material.addSubview(content)
         border.frame = bounds
@@ -36,15 +43,31 @@ final class PaletteChromeView: NSView {
         border.fillColor = NSColor.clear.cgColor
         border.lineWidth = 0.5
         layer?.addSublayer(border)
-        updateBorder()
+        updateAppearance()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        updateBorder()
+        updateAppearance()
     }
-    private func updateBorder() {
-        effectiveAppearance.performAsCurrentDrawingAppearance { border.strokeColor = NSColor.separatorColor.cgColor }
+    private func updateAppearance() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            border.strokeColor = NSColor.separatorColor.cgColor
+            let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let colors: [NSColor] = dark ? [
+                NSColor(srgbRed: 0.10, green: 0.19, blue: 0.25, alpha: 0.94),
+                NSColor(srgbRed: 0.13, green: 0.16, blue: 0.19, alpha: 0.94),
+                NSColor(srgbRed: 0.15, green: 0.16, blue: 0.17, alpha: 0.96)
+            ] : [
+                NSColor(srgbRed: 0.89, green: 0.975, blue: 1, alpha: 0.96),
+                NSColor(srgbRed: 0.95, green: 0.975, blue: 0.995, alpha: 0.94),
+                NSColor(srgbRed: 0.98, green: 0.98, blue: 0.985, alpha: 0.96)
+            ]
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            tint.colors = colors.map(\.cgColor)
+            CATransaction.commit()
+        }
     }
     private func outline() -> CGPath {
         let body = placement.bodyRect.insetBy(dx: 0.5, dy: 0.5)
