@@ -2,12 +2,6 @@ import Foundation
 import CoreGraphics
 
 enum PaletteGeometry {
-    static func panelFrame(anchor: CGRect, size: CGSize, visible: CGRect) -> CGRect {
-        let x = min(max(anchor.minX, visible.minX + 6), visible.maxX - size.width - 6)
-        let below = anchor.minY - size.height - 6
-        let y = below >= visible.minY + 6 ? below : min(anchor.maxY + 6, visible.maxY - size.height - 6)
-        return CGRect(x: x, y: max(visible.minY + 6, y), width: size.width, height: size.height)
-    }
     static func axPoint(_ point: CGPoint, primaryTop: CGFloat) -> CGPoint {
         CGPoint(x: point.x, y: primaryTop - point.y)
     }

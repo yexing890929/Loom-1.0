@@ -84,7 +84,7 @@ private final class GreenButtonSurface: NSView {
     override func otherMouseDown(with event: NSEvent) { relay?(event) }
 }
 
-final class PaletteController {
+final class PaletteController: NSObject, NSPopoverDelegate {
     private struct Target {
         let window: AXUIElement
         let button: AXUIElement
@@ -93,7 +93,8 @@ final class PaletteController {
     private var axObserver: AXObserver?
     private var showGeneration = UUID()
     private var target: Target?
-    private var panel: PalettePanel?
+    private var popover: NSPopover?
+    private var panel: NSWindow? { popover?.isShown == true ? popover?.contentViewController?.view.window : nil }
     private var shield: PalettePanel?
     private var globalMonitor: Any?
     private var localMonitor: Any?
@@ -108,11 +109,18 @@ final class PaletteController {
     private let system = AXUIElementCreateSystemWide()
     var perform: ((Action, AXUIElement) -> Void)?
 
-    init() {
+    override init() {
+        super.init()
         AXUIElementSetMessagingTimeout(system, 0.08)
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.willSleepNotification] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.dismiss() })
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                guard let self else { return }
+                if name == NSWorkspace.didActivateApplicationNotification,
+                   let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                   app.processIdentifier == ProcessInfo.processInfo.processIdentifier, self.popover != nil { return }
+                self.dismiss()
+            })
         }
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in self?.dismiss() })
     }
@@ -258,27 +266,32 @@ final class PaletteController {
               !NSEvent.modifierFlags.contains(.command), let currentFrame = frame(target.button),
               abs(currentFrame.minX - target.frame.minX) < 2, abs(currentFrame.minY - target.frame.minY) < 2 else { dismiss(); return }
         let size = CGSize(width: itemSize * 7 + 4 * 6 + 16, height: itemSize + 16)
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: target.frame.midX, y: target.frame.midY)) }) else { dismiss(); return }
-        let rect = PaletteGeometry.panelFrame(anchor: target.frame, size: size, visible: screen.visibleFrame)
+        guard let anchor = shield?.contentView, anchor.window != nil else { dismiss(); return }
         let host = NSHostingView(rootView: PaletteView(itemSize: itemSize) { [weak self] action in
             guard let self else { return }
             self.dismiss()
             self.perform?(action, target.window)
         })
-        let material = NSVisualEffectView(frame: CGRect(origin: .zero, size: size))
-        // Use the native popover material; the OS supplies its tint and blur
-        // for the selected Aqua/Dark Aqua appearance and accessibility settings.
-        material.material = .popover
-        material.blendingMode = .behindWindow
-        material.state = .active
-        material.wantsLayer = true; material.layer?.cornerRadius = 12; material.layer?.masksToBounds = true
-        host.frame = material.bounds; host.autoresizingMask = [.width, .height]
-        material.addSubview(host)
-        let result = makePanel(rect)
-        result.appearance = appearance
-        result.hasShadow = true; result.contentView = material
-        panel = result
-        result.orderFrontRegardless()
+        host.frame = CGRect(origin: .zero, size: size)
+        let controller = NSViewController()
+        controller.view = host
+        controller.preferredContentSize = size
+        let popup = NSPopover()
+        popup.contentViewController = controller
+        popup.contentSize = size
+        popup.appearance = appearance
+        popup.behavior = .applicationDefined
+        popup.animates = false
+        popup.delegate = self
+        popover = popup
+        // NSPopover owns all visible chrome: native background, arrow, corners,
+        // border, shadow and edge placement. No custom material or layer clipping.
+        popup.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        if !popup.isShown { dismiss() }
+    }
+    func popoverDidClose(_ notification: Notification) {
+        guard notification.object as? NSPopover === popover else { return }
+        dismiss()
     }
     func dismiss() {
         showGeneration = UUID()
@@ -286,7 +299,10 @@ final class PaletteController {
         axObserver = nil
         pendingShow?.cancel(); pendingShow = nil
         pendingClose?.cancel(); pendingClose = nil
-        panel?.orderOut(nil); panel = nil
+        let closing = popover
+        popover = nil
+        closing?.delegate = nil
+        closing?.close()
         shield?.orderOut(nil); shield = nil
         target = nil
     }
@@ -298,7 +314,9 @@ final class PaletteController {
     deinit {
         if let axObserver { CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(axObserver), .commonModes) }
         pendingShow?.cancel(); pendingClose?.cancel()
-        panel?.orderOut(nil); shield?.orderOut(nil)
+        popover?.delegate = nil
+        popover?.close()
+        shield?.orderOut(nil)
         if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
         if let localMonitor { NSEvent.removeMonitor(localMonitor) }
         for observer in observers {
