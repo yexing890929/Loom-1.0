@@ -33,7 +33,7 @@ private struct PaletteButton: NSViewRepresentable {
     let perform: () -> Void
     func makeCoordinator() -> Coordinator { Coordinator(perform) }
     func makeNSView(context: Context) -> NSButton {
-        let button = NSButton(image: PaletteIcon.image(for: action), target: context.coordinator, action: #selector(Coordinator.click))
+        let button = NSButton(image: PaletteIcon.image(for: action, itemSize: size), target: context.coordinator, action: #selector(Coordinator.click))
         button.bezelStyle = .regularSquare
         button.isBordered = false
         button.contentTintColor = .labelColor
@@ -47,6 +47,7 @@ private struct PaletteButton: NSViewRepresentable {
     }
     func updateNSView(_ button: NSButton, context: Context) {
         context.coordinator.perform = perform
+        button.image = PaletteIcon.image(for: action, itemSize: size)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSButton, context: Context) -> CGSize? {
         CGSize(width: size, height: size)
@@ -59,11 +60,19 @@ private struct PaletteButton: NSViewRepresentable {
 }
 
 enum PaletteIcon {
-    static func image(for action: Action) -> NSImage {
+    static func image(for action: Action, itemSize: CGFloat = 34) -> NSImage {
+        let iconSize = PaletteGeometry.iconSize(itemSize: itemSize)
         if action == .restore {
-            return NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: action.title)!
+            let image = NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: action.title)!
+            image.size = iconSize
+            return image
         }
-        let image = NSImage(size: NSSize(width: 25, height: 23), flipped: true) { _ in
+        let image = NSImage(size: iconSize, flipped: true) { bounds in
+            NSGraphicsContext.saveGraphicsState()
+            defer { NSGraphicsContext.restoreGraphicsState() }
+            let transform = NSAffineTransform()
+            transform.scale(by: bounds.width / 25)
+            transform.concat()
             NSColor.black.setStroke()
             let box = CGRect(x: 1.5, y: 3.5, width: 22, height: 16)
             let outline = NSBezierPath(roundedRect: box, xRadius: 2, yRadius: 2)
@@ -131,7 +140,11 @@ final class PaletteController: NSObject, NSPopoverDelegate {
                 guard let self else { return }
                 if name == NSWorkspace.didActivateApplicationNotification,
                    let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                   app.processIdentifier == ProcessInfo.processInfo.processIdentifier, self.popover != nil { return }
+                   self.popover != nil {
+                    var targetPID: pid_t = 0
+                    if let window = self.target?.window { AXUIElementGetPid(window, &targetPID) }
+                    if app.processIdentifier == targetPID || app.processIdentifier == ProcessInfo.processInfo.processIdentifier { return }
+                }
                 self.dismiss()
             })
         }
@@ -158,7 +171,9 @@ final class PaletteController: NSObject, NSPopoverDelegate {
             }
             if let panel = self.panel, [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type),
                event.window === panel, !self.isControlClick(event) {
+                let targetWindow = self.target?.window
                 self.dismiss()
+                if let targetWindow { self.activate(targetWindow) }
                 return nil
             }
             self.handle(event)
@@ -176,6 +191,12 @@ final class PaletteController: NSObject, NSPopoverDelegate {
     }
     private func handle(_ event: NSEvent) {
         guard enabled, WindowManager.trusted else { dismiss(); return }
+        if event.type == .keyDown, event.keyCode == 53, popover != nil {
+            let targetWindow = target?.window
+            dismiss()
+            if let targetWindow { activate(targetWindow) }
+            return
+        }
         if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) {
             if event.window !== panel && event.window !== shield { dismiss() }
             return
@@ -320,13 +341,11 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         // border, shadow and edge placement. No custom material or layer clipping.
         popup.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
         if popup.isShown {
-            NSApp.activate(ignoringOtherApps: true)
-            if let window = popup.contentViewController?.view.window {
-                if let screen = anchor.window?.screen {
-                    let shifted = PaletteGeometry.shiftedFrame(window.frame, in: screen.visibleFrame, offset: 24)
-                    window.setFrameOrigin(shifted.origin)
-                }
-                window.makeKey()
+            // The palette is nonactivating: the source app keeps its colored
+            // traffic lights and keyboard focus while the user chooses a layout.
+            // Do not move the popover window after AppKit has placed its arrow.
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+                activate(target.window)
             }
         } else { dismiss() }
     }

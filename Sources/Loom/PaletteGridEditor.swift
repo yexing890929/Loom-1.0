@@ -50,7 +50,7 @@ struct PaletteGridEditor: NSViewRepresentable {
         func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int { PaletteLayout.count }
         func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
             let item = collectionView.makeItem(withIdentifier: PaletteGridEditor.itemID, for: indexPath) as! PaletteGridItem
-            item.configure(action: owner.layout.cells[indexPath.item], index: indexPath.item)
+            item.configure(action: owner.layout.cells[indexPath.item], index: indexPath.item, itemSize: owner.itemSize)
             return item
         }
         func collectionView(_ collectionView: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath) -> NSPasteboardWriting? {
@@ -86,6 +86,8 @@ struct PaletteGridEditor: NSViewRepresentable {
 private final class PaletteGridItem: NSCollectionViewItem {
     private let box = NSBox()
     private let icon = NSImageView()
+    private var iconWidth: NSLayoutConstraint!
+    private var iconHeight: NSLayoutConstraint!
     override func loadView() {
         box.boxType = .custom
         box.borderWidth = 1
@@ -95,18 +97,23 @@ private final class PaletteGridItem: NSCollectionViewItem {
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.imageScaling = .scaleNone
         box.contentView?.addSubview(icon)
+        iconWidth = icon.widthAnchor.constraint(equalToConstant: 25)
+        iconHeight = icon.heightAnchor.constraint(equalToConstant: 23)
         NSLayoutConstraint.activate([
             icon.centerXAnchor.constraint(equalTo: box.centerXAnchor),
             icon.centerYAnchor.constraint(equalTo: box.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 25), icon.heightAnchor.constraint(equalToConstant: 23)
+            iconWidth, iconHeight
         ])
         updateStyle()
     }
     override var isSelected: Bool { didSet { updateStyle() } }
     override var highlightState: NSCollectionViewItem.HighlightState { didSet { updateStyle() } }
-    func configure(action: Action?, index: Int) {
+    func configure(action: Action?, index: Int, itemSize: CGFloat) {
         _ = view
-        icon.image = action.map { PaletteIcon.image(for: $0) }
+        let size = PaletteGeometry.iconSize(itemSize: itemSize)
+        iconWidth.constant = size.width
+        iconHeight.constant = size.height
+        icon.image = action.map { PaletteIcon.image(for: $0, itemSize: itemSize) }
         view.toolTip = action?.title
         view.setAccessibilityLabel("第 \(index / PaletteLayout.columns + 1) 行，第 \(index % PaletteLayout.columns + 1) 列，\(action?.title ?? "空格")")
         updateStyle()

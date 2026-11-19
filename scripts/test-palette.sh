@@ -9,10 +9,12 @@ import CoreGraphics
 func check(_ value: Bool, _ name: String) { if !value { fatalError(name) }; print("PASS: \(name)") }
 check(PaletteGeometry.axPoint(CGPoint(x: -100, y: 1000), primaryTop: 900) == CGPoint(x: -100, y: -100), "AX hit point conversion above primary screen")
 check(PaletteGeometry.cocoaFrame(CGRect(x: -100, y: -100, width: 14, height: 14), primaryTop: 900) == CGRect(x: -100, y: 986, width: 14, height: 14), "AX button frame conversion")
-let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
-check(PaletteGeometry.shiftedFrame(CGRect(x: 30, y: 700, width: 280, height: 60), in: screen, offset: 24) == CGRect(x: 54, y: 700, width: 280, height: 60), "popup moves right without changing height or vertical anchor")
-check(PaletteGeometry.shiftedFrame(CGRect(x: 1150, y: 700, width: 280, height: 60), in: screen, offset: 24).maxX == 1436, "right shift remains within screen")
-check(PaletteGeometry.shiftedFrame(CGRect(x: -1900, y: 700, width: 280, height: 60), in: CGRect(x: -1920, y: 0, width: 1920, height: 1080), offset: 24).minX == -1876, "right shift on a negative-coordinate display")
+let small = PaletteGeometry.iconSize(itemSize: 30)
+let large = PaletteGeometry.iconSize(itemSize: 44)
+check(large.width > small.width * 1.4 && large.height > small.height * 1.4, "largest icons visibly scale up from smallest")
+check(abs(small.width / small.height - large.width / large.height) < 0.0001, "icon scaling preserves aspect ratio")
+check(small.width < 30 && small.height < 30 && large.width < 44 && large.height < 44, "scaled icons remain within button bounds")
+check(PaletteGeometry.iconSize(itemSize: 100) == large && PaletteGeometry.iconSize(itemSize: 1) == small, "out-of-range icon sizes clamp safely")
 
 SWIFT
 mkdir -p .build/module-cache
