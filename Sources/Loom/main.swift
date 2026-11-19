@@ -141,9 +141,11 @@ struct SettingsView: View {
                     Text("弹出前按住 Command 可使用系统绿点菜单。面板弹出后保持显示，点击布局或空白处关闭；也可按 Esc 取消。需要辅助功能权限。")
                 }
                 Section {
-                    PaletteGridEditor(layout: model.paletteLayout, itemSize: model.paletteItemSize) { action, destination in
+                    PaletteGridEditor(layout: model.paletteLayout, itemSize: model.paletteItemSize, move: { action, destination in
                         model.movePaletteAction(action, to: destination)
-                    }
+                    }, toggleVisibility: { action in
+                        model.paletteLayout.toggleVisibility(action)
+                    })
                     .frame(width: model.paletteItemSize >= 44 ? nil : model.paletteLayout.size(itemSize: model.paletteItemSize).width,
                            height: model.paletteLayout.size(itemSize: model.paletteItemSize).height)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -418,6 +420,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.addItem(quitItem)
         // Native menu tracking supplies material, corner radius, selection, keyboard
         // navigation, dismissal and screen-edge constraints as one system surface.
+        palette.menuTracking = true
+        defer { palette.menuTracking = false }
         menu.popUp(positioning: nil, at: NSPoint(x: button.bounds.minX - 10, y: button.bounds.minY - 4), in: button)
     }
     private func layoutMenuIcon(for action: Action) -> NSImage {

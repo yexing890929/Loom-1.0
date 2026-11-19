@@ -5,7 +5,7 @@ import ApplicationServices
 // macOS/app combination. Prefer AX shown-menu state and fall back to onscreen
 // window metadata near the green button; never inspect window contents.
 enum PaletteSystemPopup {
-    static func isVisible(button: AXUIElement, window: AXUIElement, buttonFrame: CGRect) -> Bool {
+    static func isVisible(button: AXUIElement, window: AXUIElement, buttonFrame: CGRect, primaryTop: CGFloat? = nil) -> Bool {
         let ownPID = ProcessInfo.processInfo.processIdentifier
         var pid: pid_t = 0
         AXUIElementGetPid(window, &pid)
@@ -21,7 +21,7 @@ enum PaletteSystemPopup {
             }
         }
         guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return false }
-        let primaryTop = NSScreen.screens.first?.frame.maxY ?? 0
+        let primaryTop = primaryTop ?? NSScreen.screens.first?.frame.maxY ?? 0
         for info in windows {
             guard let owner = info[kCGWindowOwnerPID as String] as? Int,
                   let layer = info[kCGWindowLayer as String] as? Int,

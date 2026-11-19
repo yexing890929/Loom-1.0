@@ -7,6 +7,11 @@ struct PaletteLayout: Equatable {
     static let count = columns * rows
     static let actions: [Action] = [.maximize, .left, .right, .top, .bottom, .center, .restore]
     private(set) var cells: [Action?]
+    private(set) var hidden = Set<Action>()
+    private struct Stored: Codable {
+        let cells: [String?]
+        let hidden: [String]
+    }
 
     static var standard: Self {
         var cells = [Action?](repeating: nil, count: count)
@@ -15,7 +20,9 @@ struct PaletteLayout: Equatable {
     }
     private init(cells: [Action?]) { self.cells = cells }
     init(data: Data?) {
-        guard let data, let raw = try? JSONDecoder().decode([String?].self, from: data), raw.count == Self.count else {
+        guard let data else { self = .standard; return }
+        let stored = try? JSONDecoder().decode(Stored.self, from: data)
+        guard let raw = stored?.cells ?? (try? JSONDecoder().decode([String?].self, from: data)), raw.count == Self.count else {
             self = .standard; return
         }
         var seen = Set<Action>()
@@ -26,8 +33,18 @@ struct PaletteLayout: Equatable {
         for action in Self.actions where !seen.contains(action) {
             if let empty = cells.firstIndex(where: { $0 == nil }) { cells[empty] = action }
         }
+        hidden = Set((stored?.hidden ?? []).compactMap(Action.init(rawValue:))).intersection(Self.actions)
     }
-    var data: Data? { try? JSONEncoder().encode(cells.map { $0?.rawValue }) }
+    var data: Data? { try? JSONEncoder().encode(Stored(cells: cells.map { $0?.rawValue }, hidden: hidden.map(\.rawValue).sorted())) }
+    var hasVisibleActions: Bool { cells.compactMap { $0 }.contains { !hidden.contains($0) } }
+    func visibleAction(at index: Int) -> Action? {
+        guard cells.indices.contains(index), let action = cells[index], !hidden.contains(action) else { return nil }
+        return action
+    }
+    mutating func toggleVisibility(_ action: Action) {
+        guard Self.actions.contains(action) else { return }
+        if !hidden.insert(action).inserted { hidden.remove(action) }
+    }
     @discardableResult mutating func move(_ action: Action, to destination: Int) -> Bool {
         guard cells.indices.contains(destination), let source = cells.firstIndex(of: action), source != destination else { return false }
         cells.swapAt(source, destination)
@@ -42,7 +59,7 @@ struct PaletteLayout: Equatable {
         }
     }
     var visibleBounds: VisibleBounds {
-        let occupied = cells.indices.filter { cells[$0] != nil }
+        let occupied = cells.indices.filter { visibleAction(at: $0) != nil }
         let rows = occupied.map { $0 / Self.columns }
         let columns = occupied.map { $0 % Self.columns }
         return VisibleBounds(rows: (rows.min() ?? 0)...(rows.max() ?? 0),

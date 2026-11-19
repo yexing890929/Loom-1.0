@@ -41,6 +41,22 @@ var extremes = PaletteLayout.standard
 extremes.move(.maximize, to: 0); extremes.move(.restore, to: 59)
 check(extremes.visibleBounds.size(itemSize: 34) == extremes.size(itemSize: 34), "opposite-corner icons require full grid bounds")
 check(PaletteLayout(data: sparse.data).visibleBounds == sparse.visibleBounds, "cropping is preserved after reload")
+var hidden = PaletteLayout.standard
+hidden.toggleVisibility(.left)
+check(hidden.cells.contains(.left) && hidden.visibleAction(at: 22) == nil && hidden.visibleBounds == standard.visibleBounds, "hidden interior action retains its editor position and popup hole")
+hidden.toggleVisibility(.maximize)
+check(hidden.visibleBounds.columns == 3...7, "empty edge columns crop after hiding")
+check(PaletteLayout(data: hidden.data) == hidden, "hidden actions and positions persist together")
+hidden.move(.left, to: 59)
+check(hidden.hidden.contains(.left) && hidden.visibleBounds.rows == 2...2, "dragging a hidden icon preserves visibility without expanding popup")
+hidden.toggleVisibility(.left)
+check(hidden.visibleAction(at: 59) == .left && hidden.visibleBounds.columns.upperBound == 9, "showing an icon restores it at its current location")
+for action in PaletteLayout.actions where !hidden.hidden.contains(action) { hidden.toggleVisibility(action) }
+check(!hidden.hasVisibleActions && PaletteLayout(data: hidden.data) == hidden, "all hidden configuration persists and disables popup")
+let legacy = try! JSONEncoder().encode(standard.cells.map { $0?.rawValue })
+check(PaletteLayout(data: legacy) == standard, "legacy array storage migrates without moving icons")
+hidden.toggleVisibility(.fullScreen)
+check(!hidden.hidden.contains(.fullScreen), "unsupported actions cannot be hidden")
 
 SWIFT
 mkdir -p .build/module-cache
