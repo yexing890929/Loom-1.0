@@ -84,7 +84,7 @@ struct SettingsView: View {
     @ObservedObject var model: SettingsModel
     let page: Page
     enum Page: String, CaseIterable {
-        case general = "通用", palette = "Palette", shortcuts = "快捷键", permissions = "权限", about = "关于"
+        case general = "通用", palette = "悬浮面板", shortcuts = "快捷键", permissions = "权限", about = "关于"
         var symbol: String {
             switch self { case .general: return "gearshape"; case .palette: return "rectangle.3.group"; case .shortcuts: return "keyboard"; case .permissions: return "lock.shield"; case .about: return "info.circle" }
         }
@@ -132,11 +132,11 @@ struct SettingsView: View {
                         Slider(value: $model.paletteDelay, in: 0.15...1, step: 0.05).frame(width: 160)
                         Text(String(format: "%.2f 秒", model.paletteDelay)).monospacedDigit().frame(width: 64, alignment: .trailing)
                     }.disabled(!model.paletteEnabled)
-                    SettingsRow("按钮大小") {
+                    SettingsRow("图标大小") {
                         Slider(value: $model.paletteItemSize, in: 30...44, step: 2).frame(width: 160)
                     }.disabled(!model.paletteEnabled)
                 } header: {
-                    settingsHeading("Palette 悬浮面板", subtitle: "将指针停在前台应用窗口的绿色按钮上，快速选择窗口布局。")
+                    settingsHeading("悬浮面板", subtitle: "将指针停在前台应用窗口的绿色按钮上，快速选择窗口布局。")
                 } footer: {
                     Text("弹出前按住 Command 可使用系统绿点菜单。面板弹出后保持显示，点击布局或空白处关闭；也可按 Esc 取消。需要辅助功能权限。")
                 }
@@ -164,7 +164,8 @@ struct SettingsView: View {
                 Section {
                     SettingsRow("辅助功能") { Text(model.trusted ? "已授权" : "未授权").foregroundStyle(.secondary) }
                     SettingsRow("系统权限") {
-                        Button("打开系统设置…") { WindowManager.openPermissionSettings() }
+                        Button("打开系统设置") { WindowManager.openPermissionSettings() }
+                            .fixedSize()
                     }
                 } header: {
                     settingsHeading("辅助功能权限", subtitle: "Loom 使用辅助功能权限读取窗口位置并调整大小，不读取窗口内容。请在“系统设置 → 隐私与安全性 → 辅助功能”中开启 Loom。")
