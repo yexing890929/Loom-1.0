@@ -34,12 +34,12 @@ private struct PaletteButton: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(perform) }
     func makeNSView(context: Context) -> NSButton {
         let button = NSButton(image: PaletteIcon.image(for: action), target: context.coordinator, action: #selector(Coordinator.click))
-        button.bezelStyle = .recessed
-        button.isBordered = true
-        button.showsBorderOnlyWhileMouseInside = true
+        button.bezelStyle = .regularSquare
+        button.isBordered = false
+        button.contentTintColor = .labelColor
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleNone
-        button.setButtonType(.momentaryPushIn)
+        button.setButtonType(.momentaryChange)
         button.controlSize = .regular
         button.toolTip = action.title
         button.setAccessibilityLabel(action.title)
@@ -308,7 +308,10 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         let popup = NSPopover()
         popup.contentViewController = controller
         popup.contentSize = size
-        popup.appearance = appearance
+        // Aqua alone overrides NSPopover's vibrant content appearance and can
+        // flatten its material. Use the corresponding native vibrant appearance.
+        let resolved = (appearance ?? NSApp.effectiveAppearance).bestMatch(from: [.aqua, .darkAqua]) ?? .aqua
+        popup.appearance = NSAppearance(named: resolved == .darkAqua ? .vibrantDark : .vibrantLight)
         popup.behavior = .applicationDefined
         popup.animates = false
         popup.delegate = self
@@ -318,7 +321,13 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         popup.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
         if popup.isShown {
             NSApp.activate(ignoringOtherApps: true)
-            popup.contentViewController?.view.window?.makeKey()
+            if let window = popup.contentViewController?.view.window {
+                if let screen = anchor.window?.screen {
+                    let shifted = PaletteGeometry.shiftedFrame(window.frame, in: screen.visibleFrame, offset: 24)
+                    window.setFrameOrigin(shifted.origin)
+                }
+                window.makeKey()
+            }
         } else { dismiss() }
     }
     private func activate(_ window: AXUIElement) {
