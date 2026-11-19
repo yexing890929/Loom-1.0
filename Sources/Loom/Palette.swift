@@ -27,16 +27,21 @@ struct PaletteView: View {
 
 // AppKit draws the bezel, hover, pressed and disabled states. Only the layout
 // pictogram is authored; the surrounding control has no custom background colors.
+private final class PaletteButtonControl: NSButton {
+    override var allowsVibrancy: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 private struct PaletteButton: NSViewRepresentable {
     let action: Action
     let size: CGFloat
     let perform: () -> Void
     func makeCoordinator() -> Coordinator { Coordinator(perform) }
     func makeNSView(context: Context) -> NSButton {
-        let button = NSButton(image: PaletteIcon.image(for: action, itemSize: size), target: context.coordinator, action: #selector(Coordinator.click))
+        let button = PaletteButtonControl(image: PaletteIcon.image(for: action, itemSize: size, ink: PaletteChromeView.iconColor), target: context.coordinator, action: #selector(Coordinator.click))
         button.bezelStyle = .regularSquare
         button.isBordered = false
-        button.contentTintColor = .labelColor
+        button.contentTintColor = nil
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleNone
         button.setButtonType(.momentaryChange)
@@ -47,7 +52,7 @@ private struct PaletteButton: NSViewRepresentable {
     }
     func updateNSView(_ button: NSButton, context: Context) {
         context.coordinator.perform = perform
-        button.image = PaletteIcon.image(for: action, itemSize: size)
+        button.image = PaletteIcon.image(for: action, itemSize: size, ink: PaletteChromeView.iconColor)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSButton, context: Context) -> CGSize? {
         CGSize(width: size, height: size)
@@ -60,12 +65,20 @@ private struct PaletteButton: NSViewRepresentable {
 }
 
 enum PaletteIcon {
-    static func image(for action: Action, itemSize: CGFloat = 34) -> NSImage {
+    static func image(for action: Action, itemSize: CGFloat = 34, ink: NSColor? = nil) -> NSImage {
         let iconSize = PaletteGeometry.iconSize(itemSize: itemSize)
         if action == .restore {
             let image = NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: action.title)!
             image.size = iconSize
-            return image
+            guard let ink else { return image }
+            let tinted = NSImage(size: iconSize, flipped: false) { rect in
+                image.draw(in: rect)
+                ink.setFill()
+                rect.fill(using: .sourceAtop)
+                return true
+            }
+            tinted.isTemplate = false
+            return tinted
         }
         let image = NSImage(size: iconSize, flipped: true) { bounds in
             NSGraphicsContext.saveGraphicsState()
@@ -73,7 +86,7 @@ enum PaletteIcon {
             let transform = NSAffineTransform()
             transform.scale(by: bounds.width / 25)
             transform.concat()
-            NSColor.black.setStroke()
+            (ink ?? .black).setStroke()
             let box = CGRect(x: 1.5, y: 3.5, width: 22, height: 16)
             let outline = NSBezierPath(roundedRect: box, xRadius: 2, yRadius: 2)
             outline.lineWidth = 1.4
@@ -82,11 +95,11 @@ enum PaletteIcon {
             let fill = action == .center
                 ? CGRect(x: inner.midX - inner.width * 0.3, y: inner.midY - inner.height * 0.3, width: inner.width * 0.6, height: inner.height * 0.6)
                 : Layout.frame(action, window: .zero, visible: inner)
-            NSColor.black.setFill()
+            (ink ?? .black).setFill()
             NSBezierPath(roundedRect: fill, xRadius: 0.6, yRadius: 0.6).fill()
             return true
         }
-        image.isTemplate = true
+        image.isTemplate = ink == nil
         return image
     }
 }
@@ -107,7 +120,7 @@ private final class GreenButtonSurface: NSView {
     override func otherMouseDown(with event: NSEvent) { relay?(event) }
 }
 
-final class PaletteController: NSObject, NSPopoverDelegate {
+final class PaletteController: NSObject {
     private struct Target {
         let window: AXUIElement
         let button: AXUIElement
@@ -116,8 +129,7 @@ final class PaletteController: NSObject, NSPopoverDelegate {
     private var axObserver: AXObserver?
     private var showGeneration = UUID()
     private var target: Target?
-    private var popover: NSPopover?
-    private var panel: NSWindow? { popover?.isShown == true ? popover?.contentViewController?.view.window : nil }
+    private var panel: PalettePanel?
     private var shield: PalettePanel?
     private var globalMonitor: Any?
     private var localMonitor: Any?
@@ -142,7 +154,7 @@ final class PaletteController: NSObject, NSPopoverDelegate {
                 guard let self else { return }
                 if name == NSWorkspace.didActivateApplicationNotification,
                    let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                   self.popover != nil {
+                   self.panel != nil {
                     var targetPID: pid_t = 0
                     if let window = self.target?.window { AXUIElementGetPid(window, &targetPID) }
                     if app.processIdentifier == targetPID || app.processIdentifier == ProcessInfo.processInfo.processIdentifier { return }
@@ -193,7 +205,7 @@ final class PaletteController: NSObject, NSPopoverDelegate {
     }
     private func handle(_ event: NSEvent) {
         guard enabled, WindowManager.trusted else { dismiss(); return }
-        if event.type == .keyDown, event.keyCode == 53, popover != nil {
+        if event.type == .keyDown, event.keyCode == 53, panel != nil {
             let targetWindow = target?.window
             dismiss()
             if let targetWindow { activate(targetWindow) }
@@ -205,7 +217,7 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         }
         // Once open, this is a click-dismissed palette, not a hover tooltip.
         // Mouse movement, modifiers and scrolling must not expire its lifetime.
-        if popover?.isShown == true { return }
+        if panel?.isVisible == true { return }
         guard !event.modifierFlags.contains(.command) else { dismiss(); return }
         if event.type == .keyDown || event.type == .scrollWheel || event.type == .leftMouseDragged { dismiss(); return }
         guard NSEvent.pressedMouseButtons == 0 else { dismiss(); return }
@@ -290,7 +302,7 @@ final class PaletteController: NSObject, NSPopoverDelegate {
             let owner = Unmanaged<PaletteController>.fromOpaque(context).takeUnretainedValue()
             // Yield immediately when the target application's native menu opens.
             if notification as String == kAXMenuOpenedNotification { owner.dismiss(); return }
-            if notification as String == kAXFocusedWindowChangedNotification, owner.popover != nil { return }
+            if notification as String == kAXFocusedWindowChangedNotification, owner.panel != nil { return }
             owner.dismiss()
         }, &observer) == .success, let observer else { return }
         let context = Unmanaged.passUnretained(self).toOpaque()
@@ -335,38 +347,20 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         guard !PaletteSystemPopup.isVisible(button: target.button, window: target.window, buttonFrame: target.frame) else { dismiss(); return }
         let gridSize = layout.visibleBounds.size(itemSize: itemSize)
         let size = CGSize(width: gridSize.width + 16, height: gridSize.height + 16)
-        guard let anchor = shield?.contentView, anchor.window != nil else { dismiss(); return }
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: target.frame.midX, y: target.frame.midY)) }) else { dismiss(); return }
+        let placement = PaletteGeometry.chromePlacement(anchor: target.frame, contentSize: size, visible: screen.visibleFrame)
         let host = NSHostingView(rootView: PaletteView(itemSize: itemSize, layout: layout) { [weak self] action in
             guard let self else { return }
             self.execute(action, on: target.window)
         })
-        host.frame = CGRect(origin: .zero, size: size)
-        let controller = NSViewController()
-        controller.view = host
-        controller.preferredContentSize = size
-        let popup = NSPopover()
-        popup.contentViewController = controller
-        popup.contentSize = size
-        // Aqua alone overrides NSPopover's vibrant content appearance and can
-        // flatten its material. Use the corresponding native vibrant appearance.
-        let resolved = (appearance ?? NSApp.effectiveAppearance).bestMatch(from: [.aqua, .darkAqua]) ?? .aqua
-        popup.appearance = NSAppearance(named: resolved == .darkAqua ? .vibrantDark : .vibrantLight)
-        popup.behavior = .applicationDefined
-        popup.animates = false
-        popup.delegate = self
-        popover = popup
-        // NSPopover owns all visible chrome: native background, arrow, corners,
-        // border, shadow and edge placement. No custom material or layer clipping.
-        popup.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
-        if popup.isShown {
-            if PaletteSystemPopup.isVisible(button: target.button, window: target.window, buttonFrame: target.frame) { dismiss(); return }
-            // The palette is nonactivating: the source app keeps its colored
-            // traffic lights and keyboard focus while the user chooses a layout.
-            // Do not move the popover window after AppKit has placed its arrow.
-            if NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
-                activate(target.window)
-            }
-        } else { dismiss() }
+        let window = makePanel(placement.frame)
+        window.appearance = appearance
+        window.hasShadow = true
+        window.contentView = PaletteChromeView(placement: placement, content: host)
+        panel = window
+        window.orderFrontRegardless()
+        window.invalidateShadow()
+        if PaletteSystemPopup.isVisible(button: target.button, window: target.window, buttonFrame: target.frame) { dismiss() }
     }
     private func activate(_ window: AXUIElement) {
         var pid: pid_t = 0
@@ -381,13 +375,9 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         perform?(action, window)
     }
     @discardableResult func performIfShown(_ action: Action) -> Bool {
-        guard popover?.isShown == true, let target else { return false }
+        guard panel?.isVisible == true, let target else { return false }
         execute(action, on: target.window)
         return true
-    }
-    func popoverDidClose(_ notification: Notification) {
-        guard notification.object as? NSPopover === popover else { return }
-        dismiss()
     }
     func dismiss() {
         systemPopupWatch?.invalidate(); systemPopupWatch = nil
@@ -395,10 +385,7 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         if let axObserver { CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(axObserver), .commonModes) }
         axObserver = nil
         pendingShow?.cancel(); pendingShow = nil
-        let closing = popover
-        popover = nil
-        closing?.delegate = nil
-        closing?.close()
+        panel?.orderOut(nil); panel = nil
         shield?.orderOut(nil); shield = nil
         target = nil
     }
@@ -411,8 +398,7 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         systemPopupWatch?.invalidate()
         if let axObserver { CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(axObserver), .commonModes) }
         pendingShow?.cancel()
-        popover?.delegate = nil
-        popover?.close()
+        panel?.orderOut(nil)
         shield?.orderOut(nil)
         if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
         if let localMonitor { NSEvent.removeMonitor(localMonitor) }
