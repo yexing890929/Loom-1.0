@@ -37,7 +37,12 @@ struct PaletteGridEditor: NSViewRepresentable {
         if previous.layout != layout || previous.itemSize != itemSize { collection.reloadData() }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSCollectionView, context: Context) -> CGSize? {
-        layout.size(itemSize: itemSize)
+        let size = layout.size(itemSize: itemSize)
+        let proposedWidth = proposal.width ?? size.width
+        // At the maximum size, use the Form row's full content width. The native
+        // flow layout distributes the extra inter-item space across ten columns.
+        let width = itemSize >= 44 && proposedWidth.isFinite ? max(size.width, proposedWidth) : size.width
+        return CGSize(width: width, height: size.height)
     }
     final class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegate {
         var owner: PaletteGridEditor

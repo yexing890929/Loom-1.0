@@ -144,15 +144,15 @@ struct SettingsView: View {
                     PaletteGridEditor(layout: model.paletteLayout, itemSize: model.paletteItemSize) { action, destination in
                         model.movePaletteAction(action, to: destination)
                     }
-                    .frame(width: model.paletteLayout.size(itemSize: model.paletteItemSize).width,
+                    .frame(width: model.paletteItemSize >= 44 ? nil : model.paletteLayout.size(itemSize: model.paletteItemSize).width,
                            height: model.paletteLayout.size(itemSize: model.paletteItemSize).height)
+                    .frame(maxWidth: .infinity, alignment: .center)
                     HStack {
-                        Text("10 列 × 6 行").foregroundStyle(.secondary)
                         Spacer()
                         Button("恢复默认布局") { model.paletteLayout = .standard }
                     }
-                } header: { Text("布局预览") } footer: {
-                    Text("拖拽图标到任意格子；拖到已有图标的格子时交换位置。修改即时应用并自动保存。")
+                } header: {
+                    settingsHeading("布局预览", subtitle: "拖拽图标到任意格子；拖到已有图标的格子时交换位置。修改即时应用并自动保存。")
                 }
             case .shortcuts:
                 shortcutSection("分屏布局", actions: [.left, .right, .top, .bottom], introductoryText: "点击快捷键开始录制，按 Esc 取消。清除后仍可从菜单栏使用。")
