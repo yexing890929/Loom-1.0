@@ -138,7 +138,7 @@ struct SettingsView: View {
                 } header: {
                     settingsHeading("Palette 悬浮面板", subtitle: "将指针停在前台应用窗口的绿色按钮上，快速选择窗口布局。")
                 } footer: {
-                    Text("按住 Command 可使用系统绿点菜单。移开鼠标、点击外部或按 Esc 关闭面板。需要辅助功能权限。")
+                    Text("弹出前按住 Command 可使用系统绿点菜单。面板弹出后保持显示，点击布局或空白处关闭；也可按 Esc 取消。需要辅助功能权限。")
                 }
                 Section {
                     PaletteGridEditor(layout: model.paletteLayout, itemSize: model.paletteItemSize) { action, destination in
@@ -344,6 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                 self.settings.saveRecordedShortcut(shortcut, for: recording)
                 return
             }
+            if self.palette.performIfShown(action) { return }
             self.run(action, target: self.manager.focusedWindow())
         }
         let failures = shortcuts.activate()

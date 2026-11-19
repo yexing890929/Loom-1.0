@@ -33,6 +33,21 @@ struct PaletteLayout: Equatable {
         cells.swapAt(source, destination)
         return true
     }
+    struct VisibleBounds: Equatable {
+        let rows: ClosedRange<Int>
+        let columns: ClosedRange<Int>
+        func size(itemSize: CGFloat) -> CGSize {
+            CGSize(width: CGFloat(columns.count) * itemSize + CGFloat(columns.count - 1) * 4,
+                   height: CGFloat(rows.count) * itemSize + CGFloat(rows.count - 1) * 4)
+        }
+    }
+    var visibleBounds: VisibleBounds {
+        let occupied = cells.indices.filter { cells[$0] != nil }
+        let rows = occupied.map { $0 / Self.columns }
+        let columns = occupied.map { $0 % Self.columns }
+        return VisibleBounds(rows: (rows.min() ?? 0)...(rows.max() ?? 0),
+                             columns: (columns.min() ?? 0)...(columns.max() ?? 0))
+    }
     func size(itemSize: CGFloat) -> CGSize {
         CGSize(width: CGFloat(Self.columns) * itemSize + CGFloat(Self.columns - 1) * 4,
                height: CGFloat(Self.rows) * itemSize + CGFloat(Self.rows - 1) * 4)

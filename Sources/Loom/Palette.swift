@@ -8,9 +8,9 @@ struct PaletteView: View {
     let perform: (Action) -> Void
     var body: some View {
         Grid(horizontalSpacing: 4, verticalSpacing: 4) {
-            ForEach(0..<PaletteLayout.rows, id: \.self) { row in
+            ForEach(Array(layout.visibleBounds.rows), id: \.self) { row in
                 GridRow {
-                    ForEach(0..<PaletteLayout.columns, id: \.self) { column in
+                    ForEach(Array(layout.visibleBounds.columns), id: \.self) { column in
                         let action = layout.cells[row * PaletteLayout.columns + column]
                         if let action {
                             PaletteButton(action: action, size: itemSize) { perform(action) }
@@ -113,7 +113,6 @@ final class PaletteController: NSObject, NSPopoverDelegate {
     private var localMonitor: Any?
     private var observers: [NSObjectProtocol] = []
     private var pendingShow: DispatchWorkItem?
-    private var pendingClose: DispatchWorkItem?
     private var lastHitTest: TimeInterval = 0
     private var enabled = false
     private var delay = 0.3
@@ -151,32 +150,45 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in self?.handle(event) }
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
             guard let self else { return event }
-            if event.type == .keyDown, event.keyCode == 53, self.target != nil { self.dismiss(); return nil }
+            if event.type == .keyDown, event.keyCode == 53, self.target != nil {
+                let window = self.target?.window
+                self.dismiss()
+                if let window { self.activate(window) }
+                return nil
+            }
+            if let panel = self.panel, [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type),
+               event.window === panel, !self.isControlClick(event) {
+                self.dismiss()
+                return nil
+            }
             self.handle(event)
             return event
         }
     }
+    private func isControlClick(_ event: NSEvent) -> Bool {
+        guard let content = event.window?.contentView else { return false }
+        var hit = content.hitTest(content.convert(event.locationInWindow, from: nil))
+        while let view = hit {
+            if view is NSControl { return true }
+            hit = view.superview
+        }
+        return false
+    }
     private func handle(_ event: NSEvent) {
-        guard enabled, WindowManager.trusted, !event.modifierFlags.contains(.command) else { dismiss(); return }
-        if event.type == .keyDown || event.type == .scrollWheel || event.type == .leftMouseDragged { dismiss(); return }
+        guard enabled, WindowManager.trusted else { dismiss(); return }
         if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) {
             if event.window !== panel && event.window !== shield { dismiss() }
             return
         }
+        // Once open, this is a click-dismissed palette, not a hover tooltip.
+        // Mouse movement, modifiers and scrolling must not expire its lifetime.
+        if popover?.isShown == true { return }
+        guard !event.modifierFlags.contains(.command) else { dismiss(); return }
+        if event.type == .keyDown || event.type == .scrollWheel || event.type == .leftMouseDragged { dismiss(); return }
         guard NSEvent.pressedMouseButtons == 0 else { dismiss(); return }
         let point = NSEvent.mouseLocation
         if let target {
-            let inside = panel.map { PaletteGeometry.containsPointer(point, anchor: target.frame, panel: $0.frame) }
-                ?? target.frame.insetBy(dx: -2, dy: -2).contains(point)
-            if inside { pendingClose?.cancel(); pendingClose = nil; return }
-            if panel != nil {
-                if pendingClose == nil {
-                    let close = DispatchWorkItem { [weak self] in self?.dismiss() }
-                    pendingClose = close
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: close)
-                }
-                return
-            }
+            if target.frame.insetBy(dx: -2, dy: -2).contains(point) { return }
             dismiss()
         }
         let now = ProcessInfo.processInfo.systemUptime
@@ -238,9 +250,11 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         var pid: pid_t = 0
         AXUIElementGetPid(target.window, &pid)
         var observer: AXObserver?
-        guard AXObserverCreate(pid, { _, _, _, context in
+        guard AXObserverCreate(pid, { _, _, notification, context in
             guard let context else { return }
-            Unmanaged<PaletteController>.fromOpaque(context).takeUnretainedValue().dismiss()
+            let owner = Unmanaged<PaletteController>.fromOpaque(context).takeUnretainedValue()
+            if notification as String == kAXFocusedWindowChangedNotification, owner.popover != nil { return }
+            owner.dismiss()
         }, &observer) == .success, let observer else { return }
         let context = Unmanaged.passUnretained(self).toOpaque()
         for notification in [kAXUIElementDestroyedNotification, kAXMovedNotification, kAXResizedNotification] {
@@ -280,13 +294,12 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         guard enabled, WindowManager.trusted, let target, target.frame.insetBy(dx: -2, dy: -2).contains(NSEvent.mouseLocation),
               !NSEvent.modifierFlags.contains(.command), let currentFrame = frame(target.button),
               abs(currentFrame.minX - target.frame.minX) < 2, abs(currentFrame.minY - target.frame.minY) < 2 else { dismiss(); return }
-        let gridSize = layout.size(itemSize: itemSize)
+        let gridSize = layout.visibleBounds.size(itemSize: itemSize)
         let size = CGSize(width: gridSize.width + 16, height: gridSize.height + 16)
         guard let anchor = shield?.contentView, anchor.window != nil else { dismiss(); return }
         let host = NSHostingView(rootView: PaletteView(itemSize: itemSize, layout: layout) { [weak self] action in
             guard let self else { return }
-            self.dismiss()
-            self.perform?(action, target.window)
+            self.execute(action, on: target.window)
         })
         host.frame = CGRect(origin: .zero, size: size)
         let controller = NSViewController()
@@ -303,7 +316,27 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         // NSPopover owns all visible chrome: native background, arrow, corners,
         // border, shadow and edge placement. No custom material or layer clipping.
         popup.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
-        if !popup.isShown { dismiss() }
+        if popup.isShown {
+            NSApp.activate(ignoringOtherApps: true)
+            popup.contentViewController?.view.window?.makeKey()
+        } else { dismiss() }
+    }
+    private func activate(_ window: AXUIElement) {
+        var pid: pid_t = 0
+        if AXUIElementGetPid(window, &pid) == .success {
+            NSRunningApplication(processIdentifier: pid)?.activate(options: [])
+            AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        }
+    }
+    private func execute(_ action: Action, on window: AXUIElement) {
+        dismiss()
+        activate(window)
+        perform?(action, window)
+    }
+    @discardableResult func performIfShown(_ action: Action) -> Bool {
+        guard popover?.isShown == true, let target else { return false }
+        execute(action, on: target.window)
+        return true
     }
     func popoverDidClose(_ notification: Notification) {
         guard notification.object as? NSPopover === popover else { return }
@@ -314,7 +347,6 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         if let axObserver { CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(axObserver), .commonModes) }
         axObserver = nil
         pendingShow?.cancel(); pendingShow = nil
-        pendingClose?.cancel(); pendingClose = nil
         let closing = popover
         popover = nil
         closing?.delegate = nil
@@ -329,7 +361,7 @@ final class PaletteController: NSObject, NSPopoverDelegate {
     }
     deinit {
         if let axObserver { CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(axObserver), .commonModes) }
-        pendingShow?.cancel(); pendingClose?.cancel()
+        pendingShow?.cancel()
         popover?.delegate = nil
         popover?.close()
         shield?.orderOut(nil)
