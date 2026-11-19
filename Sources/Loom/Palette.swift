@@ -96,8 +96,9 @@ private final class PalettePanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-// A transparent hit surface prevents the target app's own hover menu competing
-// with Loom. Real button clicks are relayed after removing this surface.
+// A transparent hit surface reduces competing hover handling. System popup
+// arbitration below handles apps/OS versions where this surface is insufficient.
+// Real button clicks are relayed after removing this surface.
 private final class GreenButtonSurface: NSView {
     var relay: ((NSEvent) -> Void)?
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -121,6 +122,7 @@ final class PaletteController: NSObject, NSPopoverDelegate {
     private var globalMonitor: Any?
     private var localMonitor: Any?
     private var observers: [NSObjectProtocol] = []
+    private var systemPopupWatch: Timer?
     private var pendingShow: DispatchWorkItem?
     private var lastHitTest: TimeInterval = 0
     private var enabled = false
@@ -215,10 +217,11 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         let now = ProcessInfo.processInfo.systemUptime
         guard now - lastHitTest >= 0.06 else { return }
         lastHitTest = now
-        guard let hit = hitTest(point) else { return }
+        guard let hit = hitTest(point), !PaletteSystemPopup.isVisible(button: hit.button, window: hit.window, buttonFrame: hit.frame) else { return }
         target = hit
         observe(hit)
         showShield(hit)
+        startSystemPopupWatch()
         let generation = UUID()
         showGeneration = generation
         let work = DispatchWorkItem { [weak self] in
@@ -227,6 +230,17 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         }
         pendingShow = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+    private func startSystemPopupWatch() {
+        systemPopupWatch?.invalidate()
+        // This guard exists only during a pending/open palette. AX notifications
+        // handle immediate menu opening; the timer covers unreported OS popups.
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self, let target = self.target else { return }
+            if PaletteSystemPopup.isVisible(button: target.button, window: target.window, buttonFrame: target.frame) { self.dismiss() }
+        }
+        systemPopupWatch = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
     private func value(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
         var result: CFTypeRef?
@@ -274,6 +288,8 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         guard AXObserverCreate(pid, { _, _, notification, context in
             guard let context else { return }
             let owner = Unmanaged<PaletteController>.fromOpaque(context).takeUnretainedValue()
+            // Yield immediately when the target application's native menu opens.
+            if notification as String == kAXMenuOpenedNotification { owner.dismiss(); return }
             if notification as String == kAXFocusedWindowChangedNotification, owner.popover != nil { return }
             owner.dismiss()
         }, &observer) == .success, let observer else { return }
@@ -283,6 +299,7 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         }
         let app = AXUIElementCreateApplication(pid)
         AXObserverAddNotification(observer, app, kAXFocusedWindowChangedNotification as CFString, context)
+        AXObserverAddNotification(observer, app, kAXMenuOpenedNotification as CFString, context)
         axObserver = observer
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
     }
@@ -315,6 +332,7 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         guard enabled, WindowManager.trusted, let target, target.frame.insetBy(dx: -2, dy: -2).contains(NSEvent.mouseLocation),
               !NSEvent.modifierFlags.contains(.command), let currentFrame = frame(target.button),
               abs(currentFrame.minX - target.frame.minX) < 2, abs(currentFrame.minY - target.frame.minY) < 2 else { dismiss(); return }
+        guard !PaletteSystemPopup.isVisible(button: target.button, window: target.window, buttonFrame: target.frame) else { dismiss(); return }
         let gridSize = layout.visibleBounds.size(itemSize: itemSize)
         let size = CGSize(width: gridSize.width + 16, height: gridSize.height + 16)
         guard let anchor = shield?.contentView, anchor.window != nil else { dismiss(); return }
@@ -341,6 +359,7 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         // border, shadow and edge placement. No custom material or layer clipping.
         popup.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
         if popup.isShown {
+            if PaletteSystemPopup.isVisible(button: target.button, window: target.window, buttonFrame: target.frame) { dismiss(); return }
             // The palette is nonactivating: the source app keeps its colored
             // traffic lights and keyboard focus while the user chooses a layout.
             // Do not move the popover window after AppKit has placed its arrow.
@@ -371,6 +390,7 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         dismiss()
     }
     func dismiss() {
+        systemPopupWatch?.invalidate(); systemPopupWatch = nil
         showGeneration = UUID()
         if let axObserver { CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(axObserver), .commonModes) }
         axObserver = nil
@@ -388,6 +408,7 @@ final class PaletteController: NSObject, NSPopoverDelegate {
         globalMonitor = nil; localMonitor = nil
     }
     deinit {
+        systemPopupWatch?.invalidate()
         if let axObserver { CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(axObserver), .commonModes) }
         pendingShow?.cancel()
         popover?.delegate = nil

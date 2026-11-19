@@ -16,6 +16,16 @@ check(abs(small.width / small.height - large.width / large.height) < 0.0001, "ic
 check(small.width < 30 && small.height < 30 && large.width < 44 && large.height < 44, "scaled icons remain within button bounds")
 check(PaletteGeometry.iconSize(itemSize: 100) == large && PaletteGeometry.iconSize(itemSize: 1) == small, "out-of-range icon sizes clamp safely")
 
+let button = CGRect(x: 100, y: 850, width: 14, height: 14)
+let native = CGRect(x: 60, y: 500, width: 250, height: 340)
+check(PaletteGeometry.isCompetingPopup(frame: native, button: button, layer: 101, ownerPID: 2, ownPID: 1), "native popup below green button is detected")
+check(!PaletteGeometry.isCompetingPopup(frame: native, button: button, layer: 101, ownerPID: 1, ownPID: 1), "Loom's own popup is excluded")
+check(!PaletteGeometry.isCompetingPopup(frame: native, button: button, layer: 0, ownerPID: 2, ownPID: 1), "ordinary app window is excluded")
+check(!PaletteGeometry.isCompetingPopup(frame: CGRect(x: 500, y: 500, width: 250, height: 340), button: button, layer: 101, ownerPID: 2, ownPID: 1), "unrelated distant popup is excluded")
+check(!PaletteGeometry.isCompetingPopup(frame: CGRect(x: 90, y: 830, width: 90, height: 20), button: button, layer: 101, ownerPID: 2, ownPID: 1), "small tooltips are excluded")
+check(PaletteGeometry.isCompetingPopup(frame: CGRect(x: 60, y: 880, width: 250, height: 100), button: button, layer: 101, ownerPID: 2, ownPID: 1), "popup flipped above the button is detected")
+check(!PaletteGeometry.isCompetingPopup(frame: CGRect(x: 60, y: 300, width: 250, height: 100), button: button, layer: 101, ownerPID: 2, ownPID: 1), "vertically distant surface is excluded")
+
 SWIFT
 mkdir -p .build/module-cache
 xcrun swiftc -sdk "${LOOM_SDK:-$(xcrun --show-sdk-path)}" -module-cache-path "$PWD/.build/module-cache" Sources/Loom/PaletteGeometry.swift "$WORK/main.swift" -o "$WORK/tests"
