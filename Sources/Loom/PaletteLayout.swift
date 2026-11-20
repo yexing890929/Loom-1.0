@@ -16,7 +16,7 @@ struct PaletteLayout: Equatable {
     static var standard: Self {
         var cells = [Action?](repeating: nil, count: count)
         let first: [Action] = [.maximize, .left, .right, .top, .bottom]
-        let second: [Action] = [.center, .arrangeTwo, .arrangeThree, .arrangeFour, .restore]
+        let second: [Action] = [.center, .arrangeTwo, .arrangeTwoVertical, .arrangeThree, .arrangeFour, .restore]
         for (offset, action) in first.enumerated() { cells[2 * columns + 2 + offset] = action }
         for (offset, action) in second.enumerated() { cells[3 * columns + 2 + offset] = action }
         return Self(cells: cells)
