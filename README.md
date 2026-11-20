@@ -20,6 +20,8 @@
 
 ## 构建与运行
 
+应用图标以 `icon/Loom.icon` 为构建来源，菜单栏使用 `icon/顶部菜单栏图标.svg`（单色透明 SVG）。需安装 Apple Icon Composer；也可通过 `LOOM_ICTOOL` 指定其 `ictool`。脚本按 `.icon` 文档的 macOS Default 外观导出 1024×1024 PNG，再生成完整尺寸的 `Loom.icns`；这是文档的静态导出，不是完整 Xcode 编译的动态图标资源。旧 `icon/应用图标.png` 留作原稿，不再参与应用图标构建。菜单栏 SVG 自动转为矢量 `MenuBarTemplate.pdf`，使用 18pt 模板图像适配明暗背景，“图标／图标和名称”设置继续生效。修改素材后重新构建即可，构建末尾会刷新 Finder 注册。
+
 需要匹配的 Apple Swift 编译器和 macOS SDK：
 
 ```sh

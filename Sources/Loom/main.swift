@@ -330,25 +330,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     var permissionOnboarding: PermissionOnboardingController?
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        if let url = Bundle.main.url(forResource: "Loom", withExtension: "icns"),
+           let icon = NSImage(contentsOf: url) {
+            NSApp.applicationIconImage = icon
+        }
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         status.isVisible = true
         if let button = status.button {
-            // Draw a template mark directly so the menu entry does not depend on SF Symbol availability.
-            let icon = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { bounds in
-                NSColor.black.setStroke()
-                let frame = NSBezierPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 2.5), xRadius: 2, yRadius: 2)
-                frame.lineWidth = 1.5
-                frame.stroke()
-                let divisions = NSBezierPath()
-                divisions.lineWidth = 1.2
-                divisions.move(to: NSPoint(x: 9, y: 3))
-                divisions.line(to: NSPoint(x: 9, y: 15))
-                divisions.move(to: NSPoint(x: 2, y: 9))
-                divisions.line(to: NSPoint(x: 16, y: 9))
-                divisions.stroke()
-                return true
-            }
-            icon.isTemplate = true
+            let icon = Bundle.main.url(forResource: "MenuBarTemplate", withExtension: "pdf")
+                .flatMap { NSImage(contentsOf: $0) }
+                ?? NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: nil)
+            icon?.size = NSSize(width: 18, height: 18)
+            icon?.isTemplate = true
             button.image = icon
             button.imagePosition = .imageOnly
             button.title = ""
