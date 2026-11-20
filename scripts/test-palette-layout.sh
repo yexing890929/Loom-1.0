@@ -29,8 +29,8 @@ check(PaletteLayout.standard.size(itemSize: 34) == CGSize(width: 376, height: 22
 check(layout.move(.left, to: 59) && layout.cells[59] == .left, "last grid cell is reachable")
 let standard = PaletteLayout.standard
 check(standard.visibleBounds.rows == 2...3 && standard.visibleBounds.columns == 2...7, "default palette crops surrounding empty rows and columns")
-check(Array(standard.cells[22...26]) == [.maximize, .left, .right, .top, .bottom] && Array(standard.cells[32...37]) == [.center, .arrangeTwo, .arrangeTwoVertical, .arrangeThree, .arrangeFour, .restore], "vertical preset is next to horizontal preset in the default layout")
-check(standard.visibleBounds.size(itemSize: 34) == CGSize(width: 224, height: 72), "default popup crops to six columns and two rows")
+check(Array(standard.cells[22...27]) == [.maximize, .left, .right, .top, .bottom, .center] && Array(standard.cells[32...37]) == [.gridSelection, .arrangeTwo, .arrangeTwoVertical, .arrangeThree, .arrangeFour, .restore], "vertical preset is next to horizontal preset in the default layout")
+check(standard.visibleBounds.size(itemSize: 34) == CGSize(width: 224, height: 72), "default popup includes manual grid action")
 var sparse = PaletteLayout.standard
 sparse.move(.restore, to: 49)
 check(sparse.visibleBounds.rows == 2...4 && sparse.visibleBounds.columns == 2...9, "sparse layout retains internal empty row and columns")
@@ -47,6 +47,7 @@ hidden.toggleVisibility(.left)
 check(hidden.cells.contains(.left) && hidden.visibleAction(at: 23) == nil && hidden.visibleBounds == standard.visibleBounds, "hidden interior action retains its editor position and popup hole")
 hidden.toggleVisibility(.maximize)
 hidden.toggleVisibility(.center)
+hidden.toggleVisibility(.gridSelection)
 check(hidden.visibleBounds.columns == 3...7, "empty edge columns crop after hiding")
 check(PaletteLayout(data: hidden.data) == hidden, "hidden actions and positions persist together")
 hidden.move(.left, to: 59)
@@ -72,6 +73,8 @@ for (index, action) in zip([23, 24, 25, 26, 33, 34, 35], PaletteLayout.actions.p
 let crowded = PaletteLayout(data: try! JSONEncoder().encode(custom))
 check(crowded.cells[38] == .arrangeFour && crowded.visibleBounds.rows == 2...3 && crowded.cells[33] == .bottom, "occupied preset destinations choose nearby free cells without moving custom icons")
 var previous = standard.cells.map { $0?.rawValue }
+previous[27] = nil
+previous[32] = Action.center.rawValue
 previous[34] = Action.arrangeThree.rawValue
 previous[35] = Action.arrangeFour.rawValue
 previous[36] = Action.restore.rawValue
@@ -82,8 +85,12 @@ check(upgraded.cells[33] == .arrangeTwo && upgraded.cells[34] == .arrangeThree &
 check(upgraded.hidden.contains(.arrangeTwo) && !upgraded.hidden.contains(.arrangeTwoVertical) && PaletteLayout(data: upgraded.data) == upgraded, "horizontal hidden state survives and new vertical preset persists")
 var verticalHidden = upgraded
 verticalHidden.toggleVisibility(.arrangeTwoVertical)
-check(verticalHidden.visibleAction(at: 37) == nil && verticalHidden.visibleBounds.columns == 2...6, "hiding vertical preset crops the now-empty edge column")
+check(verticalHidden.visibleAction(at: 37) == nil && verticalHidden.visibleBounds.columns == 1...6, "hiding vertical preset crops the now-empty edge column")
 
+check(standard.cells[32] == .gridSelection, "manual grid has a default palette position")
+var oldManual = standard.cells.map { $0 == .gridSelection ? nil : $0?.rawValue }
+let manualUpgrade = PaletteLayout(data: try! JSONEncoder().encode(oldManual))
+check(manualUpgrade.cells[32] == .gridSelection && manualUpgrade.cells[33] == .arrangeTwo, "manual action migrates without moving existing icons")
 SWIFT
 mkdir -p .build/module-cache
 xcrun swiftc -sdk "${LOOM_SDK:-$(xcrun --show-sdk-path)}" -module-cache-path "$PWD/.build/module-cache" Sources/Loom/Layout.swift Sources/Loom/PaletteLayout.swift "$WORK/main.swift" -o "$WORK/tests"

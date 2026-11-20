@@ -158,6 +158,17 @@ enum PaletteIcon {
             outline.lineWidth = 1.4
             outline.stroke()
             let inner = box.insetBy(dx: 3, dy: 3)
+            if action == .gridSelection {
+                (ink ?? .black).setFill()
+                for row in 0..<3 {
+                    for column in 0..<3 {
+                        let width = (inner.width - 2) / 3
+                        let height = (inner.height - 2) / 3
+                        CGRect(x: inner.minX + CGFloat(column) * (width + 1), y: inner.minY + CGFloat(row) * (height + 1), width: width, height: height).fill()
+                    }
+                }
+                return true
+            }
             if action.isNativeArrangement {
                 let left = CGRect(x: inner.minX, y: inner.minY, width: (inner.width - 1.5) / 2, height: inner.height)
                 let right = CGRect(x: left.maxX + 1.5, y: inner.minY, width: left.width, height: inner.height)
