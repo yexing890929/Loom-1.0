@@ -7,6 +7,7 @@ enum NativeArrangementCommand {
     static func titles(for action: Action) -> [String] {
         switch action {
         case .arrangeTwo: return ["Left & Right", "左侧与右侧", "左側與右側"]
+        case .arrangeTwoVertical: return ["Top & Bottom", "顶部与底部", "頂部與底部"]
         case .arrangeThree: return ["Left & Quarters", "左侧与四等分", "左側與四等分"]
         case .arrangeFour: return ["Quarters", "四等分"]
         default: return []

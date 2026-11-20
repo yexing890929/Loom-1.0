@@ -172,7 +172,11 @@ enum PaletteIcon {
                     fill(CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: height), color)
                     fill(CGRect(x: rect.minX, y: rect.maxY - height, width: rect.width, height: height), color)
                 }
-                if action == .arrangeFour { halves(left, primary); halves(right, primary) }
+                if action == .arrangeTwoVertical {
+                    let height = (inner.height - 1.5) / 2
+                    fill(CGRect(x: inner.minX, y: inner.minY, width: inner.width, height: height), primary)
+                    fill(CGRect(x: inner.minX, y: inner.maxY - height, width: inner.width, height: height), secondary)
+                } else if action == .arrangeFour { halves(left, primary); halves(right, primary) }
                 else {
                     fill(left, primary)
                     if action == .arrangeThree { halves(right, secondary) }

@@ -28,16 +28,16 @@ check(repaired.cells[1] == .left && repaired.cells.compactMap { $0 }.count == Pa
 check(PaletteLayout.standard.size(itemSize: 34) == CGSize(width: 376, height: 224), "grid size matches ten columns and six rows")
 check(layout.move(.left, to: 59) && layout.cells[59] == .left, "last grid cell is reachable")
 let standard = PaletteLayout.standard
-check(standard.visibleBounds.rows == 2...3 && standard.visibleBounds.columns == 2...6, "default palette crops surrounding empty rows and columns")
-check(Array(standard.cells[22...26]) == [.maximize, .left, .right, .top, .bottom] && Array(standard.cells[32...36]) == [.center, .arrangeTwo, .arrangeThree, .arrangeFour, .restore], "default positions match the reference's two five-icon rows")
-check(standard.visibleBounds.size(itemSize: 34) == CGSize(width: 186, height: 72), "default popup crops to five columns and two rows")
+check(standard.visibleBounds.rows == 2...3 && standard.visibleBounds.columns == 2...7, "default palette crops surrounding empty rows and columns")
+check(Array(standard.cells[22...26]) == [.maximize, .left, .right, .top, .bottom] && Array(standard.cells[32...37]) == [.center, .arrangeTwo, .arrangeTwoVertical, .arrangeThree, .arrangeFour, .restore], "vertical preset is next to horizontal preset in the default layout")
+check(standard.visibleBounds.size(itemSize: 34) == CGSize(width: 224, height: 72), "default popup crops to six columns and two rows")
 var sparse = PaletteLayout.standard
 sparse.move(.restore, to: 49)
 check(sparse.visibleBounds.rows == 2...4 && sparse.visibleBounds.columns == 2...9, "sparse layout retains internal empty row and columns")
 check(sparse.visibleBounds.size(itemSize: 34) == CGSize(width: 300, height: 110), "popup size uses occupied bounding box with internal gaps")
 var shifted = PaletteLayout.standard
 for action in PaletteLayout.actions.reversed() { shifted.move(action, to: standard.cells.firstIndex(of: action)! + 22) }
-check(shifted.visibleBounds.rows == 4...5 && shifted.visibleBounds.columns == 4...8 && shifted.visibleBounds.size(itemSize: 34) == standard.visibleBounds.size(itemSize: 34), "translated icons retain same popup size")
+check(shifted.visibleBounds.rows == 4...5 && shifted.visibleBounds.columns == 4...9 && shifted.visibleBounds.size(itemSize: 34) == standard.visibleBounds.size(itemSize: 34), "translated icons retain same popup size")
 var extremes = PaletteLayout.standard
 extremes.move(.maximize, to: 0); extremes.move(.restore, to: 59)
 check(extremes.visibleBounds.size(itemSize: 34) == extremes.size(itemSize: 34), "opposite-corner icons require full grid bounds")
@@ -47,7 +47,7 @@ hidden.toggleVisibility(.left)
 check(hidden.cells.contains(.left) && hidden.visibleAction(at: 23) == nil && hidden.visibleBounds == standard.visibleBounds, "hidden interior action retains its editor position and popup hole")
 hidden.toggleVisibility(.maximize)
 hidden.toggleVisibility(.center)
-check(hidden.visibleBounds.columns == 3...6, "empty edge columns crop after hiding")
+check(hidden.visibleBounds.columns == 3...7, "empty edge columns crop after hiding")
 check(PaletteLayout(data: hidden.data) == hidden, "hidden actions and positions persist together")
 hidden.move(.left, to: 59)
 check(hidden.hidden.contains(.left) && hidden.visibleBounds.rows == 2...3, "dragging a hidden icon preserves visibility without expanding popup")
@@ -63,14 +63,26 @@ var oldCells = [String?](repeating: nil, count: 60)
 for (offset, action) in PaletteLayout.actions.prefix(7).enumerated() { oldCells[21 + offset] = action.rawValue }
 oldCells.swapAt(21, 49)
 let migrated = PaletteLayout(data: try! JSONEncoder().encode(oldCells))
-check(migrated.cells[49] == .maximize && migrated.cells[22] == .left && migrated.cells[33] == .arrangeTwo && migrated.cells[34] == .arrangeThree && migrated.cells[35] == .arrangeFour, "seven-action storage gains native presets without moving existing icons")
+check(migrated.cells[49] == .maximize && migrated.cells[22] == .left && migrated.cells[33] == .arrangeTwo && migrated.cells[34] == .arrangeTwoVertical && migrated.cells[35] == .arrangeThree && migrated.cells[36] == .arrangeFour, "seven-action storage gains native presets without moving existing icons")
 let object: [String: Any] = ["cells": oldCells.map { $0 as Any? ?? NSNull() }, "hidden": ["left"]]
 let storedMigration = PaletteLayout(data: try! JSONSerialization.data(withJSONObject: object))
 check(storedMigration.hidden.contains(.left) && storedMigration.cells.contains(.arrangeFour), "migration preserves hidden actions")
 var custom = [String?](repeating: nil, count: 60)
 for (index, action) in zip([23, 24, 25, 26, 33, 34, 35], PaletteLayout.actions.prefix(7)) { custom[index] = action.rawValue }
 let crowded = PaletteLayout(data: try! JSONEncoder().encode(custom))
-check(crowded.cells[37] == .arrangeFour && crowded.visibleBounds.rows == 2...3 && crowded.cells[33] == .bottom, "occupied preset destinations choose nearby free cells without moving custom icons")
+check(crowded.cells[38] == .arrangeFour && crowded.visibleBounds.rows == 2...3 && crowded.cells[33] == .bottom, "occupied preset destinations choose nearby free cells without moving custom icons")
+var previous = standard.cells.map { $0?.rawValue }
+previous[34] = Action.arrangeThree.rawValue
+previous[35] = Action.arrangeFour.rawValue
+previous[36] = Action.restore.rawValue
+previous[37] = nil
+let previousObject: [String: Any] = ["cells": previous.map { $0 as Any? ?? NSNull() }, "hidden": ["arrangeTwo"]]
+let upgraded = PaletteLayout(data: try! JSONSerialization.data(withJSONObject: previousObject))
+check(upgraded.cells[33] == .arrangeTwo && upgraded.cells[34] == .arrangeThree && upgraded.cells[35] == .arrangeFour && upgraded.cells[36] == .restore && upgraded.cells[37] == .arrangeTwoVertical, "ten-action layout keeps positions when adding vertical preset")
+check(upgraded.hidden.contains(.arrangeTwo) && !upgraded.hidden.contains(.arrangeTwoVertical) && PaletteLayout(data: upgraded.data) == upgraded, "horizontal hidden state survives and new vertical preset persists")
+var verticalHidden = upgraded
+verticalHidden.toggleVisibility(.arrangeTwoVertical)
+check(verticalHidden.visibleAction(at: 37) == nil && verticalHidden.visibleBounds.columns == 2...6, "hiding vertical preset crops the now-empty edge column")
 
 SWIFT
 mkdir -p .build/module-cache

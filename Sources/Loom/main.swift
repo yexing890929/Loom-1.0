@@ -404,7 +404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             case .restore: symbol = "arrow.uturn.backward"
             case .nextDisplay: symbol = "arrow.right"
             case .fullScreen: symbol = "arrow.up.left.and.arrow.down.right"
-            case .arrangeTwo, .arrangeThree, .arrangeFour: symbol = "rectangle.split.2x2"
+            case .arrangeTwo, .arrangeTwoVertical, .arrangeThree, .arrangeFour: symbol = "rectangle.split.2x2"
             }
             entry.image = [.left, .right, .top, .bottom, .maximize].contains(action)
                 ? layoutMenuIcon(for: action)
@@ -467,7 +467,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                     draw(NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: 2.5), color: color)
                     draw(NSRect(x: rect.minX, y: rect.maxY - 2.5, width: rect.width, height: 2.5), color: color)
                 }
-                if action == .arrangeFour { halves(left, color: .black); halves(right, color: .black) }
+                if action == .arrangeTwoVertical {
+                    draw(NSRect(x: interior.minX, y: interior.maxY - 2.5, width: interior.width, height: 2.5), color: .black)
+                    draw(NSRect(x: interior.minX, y: interior.minY, width: interior.width, height: 2.5), color: .black.withAlphaComponent(0.45))
+                } else if action == .arrangeFour { halves(left, color: .black); halves(right, color: .black) }
                 else {
                     draw(left, color: .black)
                     let secondary = NSColor.black.withAlphaComponent(0.45)
