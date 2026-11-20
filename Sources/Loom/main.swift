@@ -306,6 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     var status: NSStatusItem!
     var window: NSWindow?
     var menuTarget: AXUIElement?
+    var permissionOnboarding: PermissionOnboardingController?
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -353,7 +354,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         let failures = shortcuts.activate()
         if !failures.isEmpty { settings.message = "以下快捷键未能注册，请重新设置：" + failures.joined(separator: "、") }
-        if !WindowManager.trusted || !UserDefaults.standard.bool(forKey: "hasLaunched") || !failures.isEmpty { showSettings() }
+        if PermissionOnboardingPolicy.shouldPresent(
+            hasLaunched: UserDefaults.standard.bool(forKey: "hasLaunched"),
+            dismissed: UserDefaults.standard.bool(forKey: PermissionOnboardingPolicy.dismissedKey),
+            trusted: WindowManager.trusted
+        ) {
+            let guide = PermissionOnboardingController { [weak self] trusted in self?.settings.trusted = trusted }
+            permissionOnboarding = guide
+            guide.present()
+        } else if !failures.isEmpty { showSettings() }
         UserDefaults.standard.set(true, forKey: "hasLaunched")
     }
     private func applyAppearance() {
@@ -529,6 +538,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if alert.runModal() == .alertSecondButtonReturn { WindowManager.openPermissionSettings() }
     }
     @objc func showSettings() {
+        if permissionOnboarding?.window?.isVisible == true { permissionOnboarding?.close() }
         palette.dismiss()
         if window == nil {
             let tabs = SettingsTabs()
@@ -556,7 +566,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         NSApp.activate(ignoringOtherApps: true); window?.makeKeyAndOrderFront(nil)
     }
     func windowWillClose(_ notification: Notification) { settings.stopRecording() }
-    func applicationWillTerminate(_ notification: Notification) { palette.dismiss() }
+    func applicationWillTerminate(_ notification: Notification) {
+        permissionOnboarding?.close()
+        palette.dismiss()
+    }
     @objc func quit() { NSApp.terminate(nil) }
 }
 let app = NSApplication.shared
