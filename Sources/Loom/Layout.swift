@@ -5,6 +5,7 @@ enum Action: String, CaseIterable, Codable {
     case left, right, top, bottom, maximize, center, restore, nextDisplay, fullScreen
     case arrangeTwo, arrangeThree, arrangeFour
     case arrangeTwoVertical
+    case gridSelection
     static let arrangementActions: [Action] = [.arrangeTwo, .arrangeTwoVertical, .arrangeThree, .arrangeFour]
     var isNativeArrangement: Bool { Self.arrangementActions.contains(self) }
     static let fullScreenActions: [Action] = [.fullScreen]
@@ -22,6 +23,7 @@ enum Action: String, CaseIterable, Codable {
         case .fullScreen: return "整个屏幕"
         case .arrangeTwo: return "双窗口左右排布"
         case .arrangeTwoVertical: return "双窗口上下排布"
+        case .gridSelection: return "网格框选"
         case .arrangeThree: return "三窗口排布"
         case .arrangeFour: return "四窗口排布"
         }

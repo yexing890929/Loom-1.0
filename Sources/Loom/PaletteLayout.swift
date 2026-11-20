@@ -5,7 +5,7 @@ struct PaletteLayout: Equatable {
     static let columns = 10
     static let rows = 6
     static let count = columns * rows
-    static let actions: [Action] = [.maximize, .left, .right, .top, .bottom, .center, .restore] + Action.arrangementActions
+    static let actions: [Action] = [.maximize, .left, .right, .top, .bottom, .center, .restore] + Action.arrangementActions + [.gridSelection]
     private(set) var cells: [Action?]
     private(set) var hidden = Set<Action>()
     private struct Stored: Codable {
@@ -15,8 +15,8 @@ struct PaletteLayout: Equatable {
 
     static var standard: Self {
         var cells = [Action?](repeating: nil, count: count)
-        let first: [Action] = [.maximize, .left, .right, .top, .bottom]
-        let second: [Action] = [.center, .arrangeTwo, .arrangeTwoVertical, .arrangeThree, .arrangeFour, .restore]
+        let first: [Action] = [.maximize, .left, .right, .top, .bottom, .center]
+        let second: [Action] = [.gridSelection, .arrangeTwo, .arrangeTwoVertical, .arrangeThree, .arrangeFour, .restore]
         for (offset, action) in first.enumerated() { cells[2 * columns + 2 + offset] = action }
         for (offset, action) in second.enumerated() { cells[3 * columns + 2 + offset] = action }
         return Self(cells: cells)

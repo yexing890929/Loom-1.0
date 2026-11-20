@@ -30,7 +30,15 @@ final class WindowManager {
         guard AXValueGetValue(p as! AXValue, .cgPoint, &point), AXValueGetValue(s as! AXValue, .cgSize, &size) else { return nil }
         return CGRect(origin: point, size: size)
     }
-    func perform(_ action: Action, on target: AXUIElement?) throws {
+    func screen(for target: AXUIElement) -> NSScreen? {
+        guard let frame = rect(target) else { return nil }
+        let top = NSScreen.screens.first?.frame.maxY ?? 0
+        let frames = NSScreen.screens.map { CGRect(x: $0.frame.minX, y: top - $0.frame.maxY, width: $0.frame.width, height: $0.frame.height) }
+        guard let index = Layout.screenIndex(for: frame, screens: frames) else { return nil }
+        return NSScreen.screens[index]
+    }
+    func perform(_ action: Action, on target: AXUIElement?, selectedFrame: CGRect? = nil) throws {
+        if action == .gridSelection, selectedFrame == nil { throw LoomError(message: "请先在网格中拖拽选择区域。") }
         guard !action.isNativeArrangement, !action.isNativeFullScreen else { throw LoomError(message: "此操作需要通过 macOS 原生命令执行。") }
         guard Self.trusted else { throw LoomError(message: "请先在系统设置中允许 Loom 使用辅助功能。") }
         guard let window = target, let original = rect(window) else { throw LoomError(message: "没有可调整的窗口。请先选择一个普通应用窗口。") }
@@ -52,7 +60,9 @@ final class WindowManager {
         let record = saved.firstIndex { CFEqual($0.window, window) }
         var desired: CGRect
         var destination = visible
-        if action == .restore {
+        if action == .gridSelection, let selectedFrame {
+            desired = selectedFrame
+        } else if action == .restore {
             guard let record else { throw LoomError(message: "这个窗口还没有可还原的位置。") }
             desired = saved[record].frame
             if let owner = Layout.screenIndex(for: desired, screens: frames), frames[owner].intersects(desired) {

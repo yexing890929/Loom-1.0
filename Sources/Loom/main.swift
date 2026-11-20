@@ -13,6 +13,12 @@ enum AppTheme: String, CaseIterable {
 final class SettingsModel: ObservableObject {
     @Published var trusted = WindowManager.trusted
     @Published var recording: Action?
+    @Published var gridColumns = SelectionGridGeometry.dimension(UserDefaults.standard.object(forKey: "selectionGridColumns") as? Int, default: 12) {
+        didSet { UserDefaults.standard.set(gridColumns, forKey: "selectionGridColumns") }
+    }
+    @Published var gridRows = SelectionGridGeometry.dimension(UserDefaults.standard.object(forKey: "selectionGridRows") as? Int, default: 8) {
+        didSet { UserDefaults.standard.set(gridRows, forKey: "selectionGridRows") }
+    }
     @Published var shortcutError: String?
     @Published var message = ""
     @Published var revision = 0
@@ -156,10 +162,25 @@ struct SettingsView: View {
                 } header: {
                     settingsHeading("布局预览", subtitle: "拖拽图标到任意格子；拖到已有图标的格子时交换位置。修改即时应用并自动保存。")
                 }
+                Section {
+                    SettingsRow("列数") {
+                        Picker("列数", selection: $model.gridColumns) {
+                            ForEach(SelectionGridGeometry.dimensions, id: \.self) { Text("\($0)").tag($0) }
+                        }.labelsHidden().fixedSize()
+                    }
+                    SettingsRow("行数") {
+                        Picker("行数", selection: $model.gridRows) {
+                            ForEach(SelectionGridGeometry.dimensions, id: \.self) { Text("\($0)").tag($0) }
+                        }.labelsHidden().fixedSize()
+                    }
+                } header: {
+                    settingsHeading("网格框选设置", subtitle: "点击网格框选图标，在当前窗口所在屏幕拖拽选择区域，松开后窗口就位。按 Esc 取消。")
+                }
             case .shortcuts:
-                shortcutSection("分屏布局", actions: [.left, .right, .top, .bottom], introductoryText: "点击快捷键开始录制，按 Esc 取消。清除后仍可从菜单栏使用。")
+                shortcutSection("分屏布局", actions: [.left, .right, .top, .bottom])
                 shortcutSection("窗口操作", actions: [.maximize, .center, .restore, .nextDisplay])
                 shortcutSection("多窗口排布", actions: Action.arrangementActions)
+                shortcutSection("手动布局", actions: [.gridSelection])
                 shortcutSection("全屏幕", actions: Action.fullScreenActions)
             case .permissions:
                 Section {
@@ -388,7 +409,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.autoenablesItems = false
         menu.minimumWidth = 240
         menu.font = NSFont.menuFont(ofSize: 13)
-        for (index, action) in Action.allCases.filter({ !$0.isNativeFullScreen && !$0.isNativeArrangement }).enumerated() {
+        for (index, action) in Action.allCases.filter({ !$0.isNativeFullScreen && !$0.isNativeArrangement && $0 != .gridSelection }).enumerated() {
             if index == 4 { menu.addItem(.separator()) }
             let entry = NSMenuItem(title: action.title, action: #selector(selectLayout(_:)), keyEquivalent: "")
             entry.target = self
@@ -405,6 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             case .nextDisplay: symbol = "arrow.right"
             case .fullScreen: symbol = "arrow.up.left.and.arrow.down.right"
             case .arrangeTwo, .arrangeTwoVertical, .arrangeThree, .arrangeFour: symbol = "rectangle.split.2x2"
+            case .gridSelection: symbol = "rectangle.split.3x3"
             }
             entry.image = [.left, .right, .top, .bottom, .maximize].contains(action)
                 ? layoutMenuIcon(for: action)
@@ -422,6 +444,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             if let binding = shortcuts.bindings[action] { applyShortcut(binding, to: entry) }
             menu.addItem(entry)
         }
+        menu.addItem(.separator())
+        let gridItem = NSMenuItem(title: Action.gridSelection.title, action: #selector(selectLayout(_:)), keyEquivalent: "")
+        gridItem.target = self
+        gridItem.representedObject = Action.gridSelection.rawValue
+        gridItem.image = NSImage(systemSymbolName: "rectangle.split.3x3", accessibilityDescription: nil)
+        if let binding = shortcuts.bindings[.gridSelection] { applyShortcut(binding, to: gridItem) }
+        menu.addItem(gridItem)
         menu.addItem(.separator())
         let fullScreenItem = NSMenuItem(title: Action.fullScreen.title, action: #selector(selectLayout(_:)), keyEquivalent: "")
         fullScreenItem.target = self
@@ -516,7 +545,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         run(action, target: menuTarget)
     }
     func run(_ action: Action, target: AXUIElement?) {
-        if action.isNativeArrangement {
+        if action == .gridSelection {
+            DispatchQueue.main.async { [weak self] in self?.showSelectionGrid(target) }
+        } else if action.isNativeArrangement {
             Task { @MainActor in
                 do { try await NativeArrangement.perform(action, on: target) }
                 catch { showWindowError(error) }
@@ -539,6 +570,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if !WindowManager.trusted { alert.addButton(withTitle: "打开系统设置") }
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertSecondButtonReturn { WindowManager.openPermissionSettings() }
+    }
+    private lazy var selectionGrid = SelectionGridController()
+    private func showSelectionGrid(_ target: AXUIElement?) {
+        palette.dismiss()
+        guard WindowManager.trusted else { showWindowError(LoomError(message: "请先在系统设置中允许 Loom 使用辅助功能。")); return }
+        guard let target, let screen = manager.screen(for: target) else { showWindowError(LoomError(message: "请先选择要调整的应用窗口。")); return }
+        AXUIElementSetMessagingTimeout(target, 0.3)
+        var full: CFTypeRef?
+        AXUIElementCopyAttributeValue(target, "AXFullScreen" as CFString, &full)
+        guard (full as? Bool) != true else { showWindowError(LoomError(message: "请先退出窗口的系统全屏模式。")); return }
+        var movable = DarwinBoolean(false); var sizable = DarwinBoolean(false)
+        AXUIElementIsAttributeSettable(target, kAXPositionAttribute as CFString, &movable)
+        AXUIElementIsAttributeSettable(target, kAXSizeAttribute as CFString, &sizable)
+        guard movable.boolValue, sizable.boolValue else { showWindowError(LoomError(message: "这个窗口不支持位置或大小调整。")); return }
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(target, &pid) == .success else { return }
+        selectionGrid.present(on: screen, sourcePID: pid, columns: settings.gridColumns, rows: settings.gridRows) { [weak self] frame in
+            guard let self else { return }
+            let top = NSScreen.screens.first?.frame.maxY ?? 0
+            let axFrame = CGRect(x: frame.minX, y: top - frame.maxY, width: frame.width, height: frame.height)
+            do { try self.manager.perform(.gridSelection, on: target, selectedFrame: axFrame) }
+            catch { self.showWindowError(error) }
+        }
     }
     @objc func showSettings() {
         if permissionOnboarding?.window?.isVisible == true { permissionOnboarding?.close() }
@@ -570,6 +624,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
     func windowWillClose(_ notification: Notification) { settings.stopRecording() }
     func applicationWillTerminate(_ notification: Notification) {
+        selectionGrid.dismiss()
         permissionOnboarding?.close()
         palette.dismiss()
     }
