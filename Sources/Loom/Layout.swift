@@ -3,6 +3,9 @@ import CoreGraphics
 
 enum Action: String, CaseIterable, Codable {
     case left, right, top, bottom, maximize, center, restore, nextDisplay, fullScreen
+    case arrangeTwo, arrangeThree, arrangeFour
+    static let arrangementActions: [Action] = [.arrangeTwo, .arrangeThree, .arrangeFour]
+    var isNativeArrangement: Bool { Self.arrangementActions.contains(self) }
     static let fullScreenActions: [Action] = [.fullScreen]
     var isNativeFullScreen: Bool { Self.fullScreenActions.contains(self) }
     var title: String {
@@ -16,6 +19,9 @@ enum Action: String, CaseIterable, Codable {
         case .restore: return "还原"
         case .nextDisplay: return "移至下一显示器"
         case .fullScreen: return "整个屏幕"
+        case .arrangeTwo: return "双窗口排布"
+        case .arrangeThree: return "三窗口排布"
+        case .arrangeFour: return "四窗口排布"
         }
     }
 }

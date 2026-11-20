@@ -158,6 +158,28 @@ enum PaletteIcon {
             outline.lineWidth = 1.4
             outline.stroke()
             let inner = box.insetBy(dx: 3, dy: 3)
+            if action.isNativeArrangement {
+                let left = CGRect(x: inner.minX, y: inner.minY, width: (inner.width - 1.5) / 2, height: inner.height)
+                let right = CGRect(x: left.maxX + 1.5, y: inner.minY, width: left.width, height: inner.height)
+                let primary = ink ?? .black
+                let secondary = primary.withAlphaComponent(primary.alphaComponent * 0.45)
+                func fill(_ rect: CGRect, _ color: NSColor) {
+                    color.setFill()
+                    NSBezierPath(roundedRect: rect, xRadius: 0.4, yRadius: 0.4).fill()
+                }
+                func halves(_ rect: CGRect, _ color: NSColor) {
+                    let height = (rect.height - 1.5) / 2
+                    fill(CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: height), color)
+                    fill(CGRect(x: rect.minX, y: rect.maxY - height, width: rect.width, height: height), color)
+                }
+                if action == .arrangeFour { halves(left, primary); halves(right, primary) }
+                else {
+                    fill(left, primary)
+                    if action == .arrangeThree { halves(right, secondary) }
+                    else { fill(right, secondary) }
+                }
+                return true
+            }
             let fill = action == .center
                 ? CGRect(x: inner.midX - inner.width * 0.3, y: inner.midY - inner.height * 0.3, width: inner.width * 0.6, height: inner.height * 0.6)
                 : Layout.frame(action, window: .zero, visible: inner)
