@@ -31,6 +31,7 @@ final class WindowManager {
         return CGRect(origin: point, size: size)
     }
     func perform(_ action: Action, on target: AXUIElement?) throws {
+        guard !action.isNativeArrangement, !action.isNativeFullScreen else { throw LoomError(message: "此操作需要通过 macOS 原生命令执行。") }
         guard Self.trusted else { throw LoomError(message: "请先在系统设置中允许 Loom 使用辅助功能。") }
         guard let window = target, let original = rect(window) else { throw LoomError(message: "没有可调整的窗口。请先选择一个普通应用窗口。") }
         AXUIElementSetMessagingTimeout(window, 0.5)

@@ -5,7 +5,7 @@ struct PaletteLayout: Equatable {
     static let columns = 10
     static let rows = 6
     static let count = columns * rows
-    static let actions: [Action] = [.maximize, .left, .right, .top, .bottom, .center, .restore]
+    static let actions: [Action] = [.maximize, .left, .right, .top, .bottom, .center, .restore] + Action.arrangementActions
     private(set) var cells: [Action?]
     private(set) var hidden = Set<Action>()
     private struct Stored: Codable {
@@ -15,7 +15,10 @@ struct PaletteLayout: Equatable {
 
     static var standard: Self {
         var cells = [Action?](repeating: nil, count: count)
-        for (offset, action) in actions.enumerated() { cells[2 * columns + 1 + offset] = action }
+        let first: [Action] = [.maximize, .left, .right, .top, .bottom]
+        let second: [Action] = [.center, .arrangeTwo, .arrangeThree, .arrangeFour, .restore]
+        for (offset, action) in first.enumerated() { cells[2 * columns + 2 + offset] = action }
+        for (offset, action) in second.enumerated() { cells[3 * columns + 2 + offset] = action }
         return Self(cells: cells)
     }
     private init(cells: [Action?]) { self.cells = cells }
@@ -31,7 +34,19 @@ struct PaletteLayout: Equatable {
             return action
         }
         for action in Self.actions where !seen.contains(action) {
-            if let empty = cells.firstIndex(where: { $0 == nil }) { cells[empty] = action }
+            let preferred = Self.standard.cells.firstIndex(of: action)
+            if let preferred {
+                // A custom layout may occupy the default destination. Keep new
+                // presets nearby instead of expanding the popup to the top-left.
+                let free = cells.indices.filter { cells[$0] == nil }.min { a, b in
+                    func distance(_ index: Int) -> Int {
+                        abs(index / Self.columns - preferred / Self.columns) * Self.columns
+                        + abs(index % Self.columns - preferred % Self.columns)
+                    }
+                    return distance(a) == distance(b) ? a > b : distance(a) < distance(b)
+                }
+                if let free { cells[free] = action }
+            }
         }
         hidden = Set((stored?.hidden ?? []).compactMap(Action.init(rawValue:))).intersection(Self.actions)
     }

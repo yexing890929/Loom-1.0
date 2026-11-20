@@ -159,6 +159,7 @@ struct SettingsView: View {
             case .shortcuts:
                 shortcutSection("分屏布局", actions: [.left, .right, .top, .bottom], introductoryText: "点击快捷键开始录制，按 Esc 取消。清除后仍可从菜单栏使用。")
                 shortcutSection("窗口操作", actions: [.maximize, .center, .restore, .nextDisplay])
+                shortcutSection("多窗口排布", actions: Action.arrangementActions)
                 shortcutSection("全屏幕", actions: Action.fullScreenActions)
             case .permissions:
                 Section {
@@ -378,7 +379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.autoenablesItems = false
         menu.minimumWidth = 240
         menu.font = NSFont.menuFont(ofSize: 13)
-        for (index, action) in Action.allCases.filter({ !$0.isNativeFullScreen }).enumerated() {
+        for (index, action) in Action.allCases.filter({ !$0.isNativeFullScreen && !$0.isNativeArrangement }).enumerated() {
             if index == 4 { menu.addItem(.separator()) }
             let entry = NSMenuItem(title: action.title, action: #selector(selectLayout(_:)), keyEquivalent: "")
             entry.target = self
@@ -394,11 +395,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             case .restore: symbol = "arrow.uturn.backward"
             case .nextDisplay: symbol = "arrow.right"
             case .fullScreen: symbol = "arrow.up.left.and.arrow.down.right"
+            case .arrangeTwo, .arrangeThree, .arrangeFour: symbol = "rectangle.split.2x2"
             }
             entry.image = [.left, .right, .top, .bottom, .maximize].contains(action)
                 ? layoutMenuIcon(for: action)
                 : NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
             entry.image?.size = NSSize(width: 16, height: 16)
+            if let binding = shortcuts.bindings[action] { applyShortcut(binding, to: entry) }
+            menu.addItem(entry)
+        }
+        menu.addItem(.separator())
+        for action in Action.arrangementActions {
+            let entry = NSMenuItem(title: action.title, action: #selector(selectLayout(_:)), keyEquivalent: "")
+            entry.target = self
+            entry.representedObject = action.rawValue
+            entry.image = layoutMenuIcon(for: action)
             if let binding = shortcuts.bindings[action] { applyShortcut(binding, to: entry) }
             menu.addItem(entry)
         }
@@ -419,6 +430,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         quitItem.target = self
         quitItem.image = NSImage(systemSymbolName: "rectangle.portrait.and.arrow.right", accessibilityDescription: nil)
         menu.addItem(quitItem)
+        // Use the same image canvas for every row, including SF Symbols.
+        for item in menu.items { item.image?.size = NSSize(width: 16, height: 16) }
         // Native menu tracking supplies material, corner radius, selection, keyboard
         // navigation, dismissal and screen-edge constraints as one system surface.
         palette.menuTracking = true
@@ -434,6 +447,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             // Keep an empty gutter between the frame and the represented area.
             // AppKit coordinates are bottom-up, so top layouts use maxY.
             let interior = NSRect(x: 4, y: 5, width: 8, height: 6)
+            if action.isNativeArrangement {
+                let left = NSRect(x: interior.minX, y: interior.minY, width: 3.5, height: interior.height)
+                let right = left.offsetBy(dx: 4.5, dy: 0)
+                func draw(_ rect: NSRect, color: NSColor) {
+                    color.setFill()
+                    NSBezierPath(roundedRect: rect, xRadius: 0.3, yRadius: 0.3).fill()
+                }
+                func halves(_ rect: NSRect, color: NSColor) {
+                    draw(NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: 2.5), color: color)
+                    draw(NSRect(x: rect.minX, y: rect.maxY - 2.5, width: rect.width, height: 2.5), color: color)
+                }
+                if action == .arrangeFour { halves(left, color: .black); halves(right, color: .black) }
+                else {
+                    draw(left, color: .black)
+                    let secondary = NSColor.black.withAlphaComponent(0.45)
+                    if action == .arrangeThree { halves(right, color: secondary) }
+                    else { draw(right, color: secondary) }
+                }
+                return true
+            }
             var fill = interior
             switch action {
             case .left: fill.size.width /= 2
@@ -471,7 +504,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         run(action, target: menuTarget)
     }
     func run(_ action: Action, target: AXUIElement?) {
-        if action.isNativeFullScreen {
+        if action.isNativeArrangement {
+            Task { @MainActor in
+                do { try await NativeArrangement.perform(action, on: target) }
+                catch { showWindowError(error) }
+            }
+        } else if action.isNativeFullScreen {
             Task { @MainActor in
                 do { try NativeFullScreen.perform(action, on: target) }
                 catch { showWindowError(error) }
