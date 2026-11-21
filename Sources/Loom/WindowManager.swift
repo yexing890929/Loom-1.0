@@ -75,14 +75,13 @@ final class WindowManager {
             desired = Layout.transfer(original, from: visible, to: destination)
         } else { desired = Layout.frame(action, window: original, visible: visible) }
         if action != .restore, record == nil { saved.append(Saved(window: window, frame: original)) }
-        var size = desired.size
-        if action != .center {
+        try WindowFrameAdjustment.apply(desired, in: destination, resize: action != .center, read: { self.rect(window) }, setSize: { requestedSize in
+            var size = requestedSize
             guard AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, AXValueCreate(.cgSize, &size)!) == .success else { throw LoomError(message: "应用未接受窗口大小调整。") }
-        }
-        // Read back once: the app may enforce a minimum size.
-        if let actual = rect(window) { desired.size = actual.size }
-        var point = Layout.fit(desired, in: destination).origin
-        guard AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, AXValueCreate(.cgPoint, &point)!) == .success else { throw LoomError(message: "应用未接受窗口位置调整。") }
+        }, setPosition: { requestedPosition in
+            var point = requestedPosition
+            guard AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, AXValueCreate(.cgPoint, &point)!) == .success else { throw LoomError(message: "应用未接受窗口位置调整。") }
+        })
         if action == .restore, let record { saved.remove(at: record) }
     }
 }
