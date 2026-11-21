@@ -5,25 +5,28 @@ SDK="${LOOM_SDK:-$(xcrun --show-sdk-path)}"
 APP="$PWD/dist/Loom.app"
 mkdir -p "$APP/Contents/MacOS" .build/module-cache
 RESOURCES="$APP/Contents/Resources"
-ICONSET="$PWD/.build/Loom.iconset"
-mkdir -p "$RESOURCES" "$ICONSET"
-ICTOOL="${LOOM_ICTOOL:-/Applications/Icon Composer.app/Contents/Executables/ictool}"
-if [[ ! -x "$ICTOOL" ]]; then
-    print -u2 "Install Apple Icon Composer or set LOOM_ICTOOL to its ictool executable."
+mkdir -p "$RESOURCES"
+# Compile the layered document directly; actool also supplies legacy macOS icons.
+if ! xcrun --find actool >/dev/null 2>&1; then
+    print -u2 "Install and select full Xcode to compile icon/Loom.icon."
     exit 1
 fi
-ICON_RENDER="$PWD/.build/Loom-rendered.png"
-"$ICTOOL" "$PWD/icon/Loom.icon" --export-image --output-file "$ICON_RENDER" --platform macOS --rendition Default --width 1024 --height 1024 --scale 1 >/dev/null
-for SIZE in 16 32 128 256 512; do
-    sips -z "$SIZE" "$SIZE" "$ICON_RENDER" --out "$ICONSET/icon_${SIZE}x${SIZE}.png" >/dev/null
-    DOUBLE_SIZE=$((SIZE * 2))
-    sips -z "$DOUBLE_SIZE" "$DOUBLE_SIZE" "$ICON_RENDER" --out "$ICONSET/icon_${SIZE}x${SIZE}@2x.png" >/dev/null
-done
-iconutil -c icns "$ICONSET" -o "$RESOURCES/Loom.icns"
+ICON_OUTPUT=$(mktemp -d "$PWD/.build/native-icon.XXXXXX")
+trap 'rm -rf "$ICON_OUTPUT"' EXIT
+ICON_INFO="$ICON_OUTPUT/icon-info.plist"
+xcrun actool "$PWD/icon/Loom.icon" --compile "$ICON_OUTPUT" \
+    --platform macosx --minimum-deployment-target 14.0 --app-icon Loom \
+    --output-partial-info-plist "$ICON_INFO" --output-format human-readable-text
+[[ -s "$ICON_OUTPUT/Assets.car" && -s "$ICON_OUTPUT/Loom.icns" ]]
+cp "$ICON_OUTPUT/Assets.car" "$ICON_OUTPUT/Loom.icns" "$RESOURCES/"
 xcrun swiftc -sdk "$SDK" -module-cache-path "$PWD/.build/module-cache" scripts/build-menu-icon.swift -o .build/build-menu-icon
 .build/build-menu-icon "$PWD/icon/顶部菜单栏图标.svg" "$RESOURCES/MenuBarTemplate.pdf"
 xcrun swiftc -O -sdk "$SDK" -module-cache-path "$PWD/.build/module-cache" -target "$(uname -m)-apple-macosx14.0" Sources/Loom/*.swift -o "$APP/Contents/MacOS/Loom"
 cp Info.plist "$APP/Contents/Info.plist"
+for KEY in CFBundleIconFile CFBundleIconName; do
+    VALUE=$(/usr/bin/plutil -extract "$KEY" raw -o - "$ICON_INFO")
+    /usr/bin/plutil -replace "$KEY" -string "$VALUE" "$APP/Contents/Info.plist"
+done
 codesign --force --sign - --identifier dev.loom.windowmanager "$APP"
 touch "$APP"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister

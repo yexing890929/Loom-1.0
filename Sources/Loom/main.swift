@@ -330,10 +330,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     var permissionOnboarding: PermissionOnboardingController?
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        if let url = Bundle.main.url(forResource: "Loom", withExtension: "icns"),
-           let icon = NSImage(contentsOf: url) {
-            NSApp.applicationIconImage = icon
-        }
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         status.isVisible = true
         if let button = status.button {
