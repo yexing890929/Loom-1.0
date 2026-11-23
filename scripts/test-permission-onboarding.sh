@@ -47,5 +47,5 @@ check(model.trusted, "reopening guide refreshes permission state")
 model.stop()
 SWIFT
 mkdir -p .build/module-cache
-xcrun swiftc -sdk "${LOOM_SDK:-$(xcrun --show-sdk-path)}" -module-cache-path "$PWD/.build/module-cache" Sources/Loom/Layout.swift Sources/Loom/WindowManager.swift Sources/Loom/PermissionOnboarding.swift "$WORK/main.swift" -o "$WORK/tests"
+xcrun swiftc -sdk "${LOOM_SDK:-$(xcrun --show-sdk-path)}" -module-cache-path "$PWD/.build/module-cache" Sources/Loom/Layout.swift Sources/Loom/WindowFrameAdjustment.swift Sources/Loom/WindowManager.swift Sources/Loom/PermissionOnboarding.swift "$WORK/main.swift" -o "$WORK/tests"
 "$WORK/tests"

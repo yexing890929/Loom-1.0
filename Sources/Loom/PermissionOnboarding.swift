@@ -53,68 +53,111 @@ final class PermissionOnboardingModel: ObservableObject {
     deinit { stop() }
 }
 
-private struct PermissionOnboardingView: View {
+// Figma frames are 1200 × 800 at 2×; render at 600 × 400 logical points.
+struct PermissionOnboardingView: View {
     @ObservedObject var model: PermissionOnboardingModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showPostponeReminder = false
+    var resources: URL? = Bundle.main.resourceURL?.appendingPathComponent("Onboarding")
     let finish: () -> Void
+    private let secondary = Color(red: 128 / 255, green: 128 / 255, blue: 128 / 255)
+
     var body: some View {
         ZStack {
-            page(trusted: model.trusted)
-                .id(model.trusted)
-                .transition(.opacity)
+            Color.white
+            VStack(spacing: 0) {
+                // Shared identity: never replace or fade the Loom icon on a state change.
+                ZStack(alignment: .topLeading) {
+                    asset("AppIcon")
+                        .resizable()
+                        .frame(width: 188, height: 188)
+                        .position(x: 300, y: 114)
+                    if model.trusted {
+                        asset("Success")
+                            .resizable()
+                            .frame(width: 45.333333, height: 45.333333)
+                            .position(x: 344, y: 153)
+                            .transition(.opacity)
+                    }
+                }
+                .frame(height: 196)
+                .accessibilityHidden(true)
+                ZStack {
+                    page(trusted: model.trusted)
+                        .id(model.trusted)
+                        .transition(.opacity)
+                }
+                .frame(maxHeight: .infinity)
+            }
         }
-        .frame(width: 440, height: 350)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: model.trusted)
+        .frame(width: 600, height: 400)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.36), value: model.trusted)
         .alert("稍后可在设置中授权", isPresented: $showPostponeReminder) {
             Button("知道了") { finish() }
         } message: {
             Text("之后可点击菜单栏中的 Loom 图标 → 设置 → 权限 → 打开系统设置，在“辅助功能”中开启 Loom。")
         }
     }
-    // Replace the complete page so the symbol, copy and actions crossfade
-    // together; do not interpolate strings or slide individual buttons around.
+
+    private func asset(_ name: String) -> Image {
+        guard let url = resources?.appendingPathComponent(name).appendingPathExtension("png"),
+              let image = NSImage(contentsOf: url) else {
+            preconditionFailure("Missing onboarding asset: \(name)")
+        }
+        return Image(nsImage: image)
+    }
+
     private func page(trusted: Bool) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: trusted ? "checkmark.circle.fill" : "macwindow")
-                .font(.system(size: 48, weight: .regular))
-                .foregroundStyle(trusted ? Color.green : Color.accentColor)
-                .frame(height: 60)
-                .accessibilityHidden(true)
-            Text(trusted ? "Loom 已准备就绪" : "允许 Loom 管理窗口")
-                .font(.title2.weight(.semibold))
-                .accessibilityAddTraits(.isHeader)
-            Text(trusted
-                 ? "通过菜单栏图标或快捷键调整窗口。"
-                 : "Loom 需要辅助功能权限来移动窗口和调整大小，不读取窗口内容。")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
+        VStack(spacing: 0) {
             VStack(spacing: 10) {
+                Text(trusted ? "Good！ Loom 已准备就绪" : "允许 Loom 管理窗口")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .frame(height: 25)
+                    .accessibilityAddTraits(.isHeader)
+                Text(trusted
+                     ? "你现在可以通过菜单栏图标或快捷键调整窗口，让我们开始吧！"
+                     : "Loom 需要辅助功能权限来移动窗口和调整大小，不读取窗口内容，请尽管放心～")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 20)
+            }
+            .padding(.horizontal, 28)
+            Spacer(minLength: 0)
+            VStack(spacing: 16) {
                 Button {
                     if trusted { finish() } else { model.authorize() }
                 } label: {
                     Text(trusted ? "开始使用" : "前往授权")
-                        .font(.body.weight(.medium))
-                        .frame(width: 200, height: 30)
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(width: 222, height: 44)
+                        .contentShape(Capsule())
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(OnboardingPrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
                 if !trusted {
                     Button("稍后设置") { showPostponeReminder = true }
-                        .buttonStyle(.borderless)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(secondary)
+                        .buttonStyle(.plain)
+                        .frame(height: 17)
                         .keyboardShortcut(.cancelAction)
                 }
             }
-            .controlSize(.large)
-            .frame(height: 82, alignment: .top)
+            .padding(.bottom, trusted ? 52 : 30)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(32)
         .disabled(trusted != model.trusted)
         .accessibilityHidden(trusted != model.trusted)
+    }
+}
+
+private struct OnboardingPrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.white)
+            .background(configuration.isPressed ? Color(white: 0.2) : .black, in: Capsule())
     }
 }
 
@@ -122,7 +165,7 @@ final class PermissionOnboardingController: NSWindowController, NSWindowDelegate
     private let model: PermissionOnboardingModel
     init(onTrustChanged: @escaping (Bool) -> Void) {
         model = PermissionOnboardingModel(onTrustChanged: onTrustChanged)
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 440, height: 350),
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Loom"
         window.identifier = NSUserInterfaceItemIdentifier("loom.permission-onboarding")
