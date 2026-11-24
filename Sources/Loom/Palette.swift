@@ -85,10 +85,18 @@ private final class PaletteButtonControl: NSButton {
     private func refreshStyle() {
         guard paletteAction != nil else { return }
         let active = hovered && isEnabled
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let hoverColor = dark
+            ? NSColor.selectedContentBackgroundColor
+            : NSColor(srgbRed: 82 / 255, green: 159 / 255, blue: 1, alpha: 1)
         // Layer-backed AppKit views otherwise interpolate this color change.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer?.backgroundColor = active ? NSColor(srgbRed: 82 / 255, green: 159 / 255, blue: 1, alpha: 1).cgColor : NSColor.clear.cgColor
+        // Resolve semantic system colors using this panel's appearance rather
+        // than the application's current appearance before assigning a CGColor.
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = active ? hoverColor.cgColor : NSColor.clear.cgColor
+        }
         image = active ? hoverIcon : normalIcon
         CATransaction.commit()
         needsDisplay = true

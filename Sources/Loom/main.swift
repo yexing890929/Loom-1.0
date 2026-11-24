@@ -111,7 +111,7 @@ struct SettingsView: View {
     enum Page: String, CaseIterable {
         case general = "通用", palette = "悬浮面板", shortcuts = "快捷键", permissions = "权限", about = "关于"
         var symbol: String {
-            switch self { case .general: return "gearshape"; case .palette: return "rectangle.3.group"; case .shortcuts: return "keyboard"; case .permissions: return "lock.shield"; case .about: return "info.circle" }
+            switch self { case .general: return "gear"; case .palette: return "rectangle.3.group"; case .shortcuts: return "keyboard"; case .permissions: return "lock.shield"; case .about: return "info.circle" }
         }
     }
     var body: some View {
@@ -163,7 +163,7 @@ struct SettingsView: View {
                 } header: {
                     settingsHeading("悬浮面板", subtitle: "将指针停在前台应用窗口的绿色按钮上，快速选择窗口布局。")
                 } footer: {
-                    Text("弹出前按住 Command 可使用系统绿点菜单。面板弹出后保持显示，点击布局或空白处关闭；也可按 Esc 取消。需要辅助功能权限。")
+                    Text("弹出前按住 Command 可使用系统绿点菜单。面板弹出后保持显示，点击布局或空白处关闭，也可按 Esc 取消。需要辅助功能权限。")
                 }
                 Section {
                     PaletteGridEditor(layout: model.paletteLayout, itemSize: model.paletteItemSize, move: { action, destination in
@@ -179,7 +179,7 @@ struct SettingsView: View {
                         Button("恢复默认布局") { model.paletteLayout = .standard }
                     }
                 } header: {
-                    settingsHeading("布局预览", subtitle: "拖拽图标到任意格子；拖到已有图标的格子时交换位置。修改即时应用并自动保存。")
+                    settingsHeading("布局预览", subtitle: "拖拽图标到任意格子，拖到已有图标的格子时交换位置，修改即时应用并自动保存。")
                 }
                 Section {
                     SettingsRow("列数") {
@@ -211,14 +211,37 @@ struct SettingsView: View {
                             .fixedSize()
                     }
                 } header: {
-                    settingsHeading("辅助功能权限", subtitle: "Loom 使用辅助功能权限读取窗口位置并调整大小，不读取窗口内容。请在“系统设置 → 隐私与安全性 → 辅助功能”中开启 Loom。")
+                    settingsHeading("辅助功能权限", subtitle: "Loom 使用辅助功能权限读取窗口位置并调整大小，不读取窗口内容。")
                 }
             case .about:
                 Section {
-                    SettingsRow("版本") { Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0").foregroundStyle(.secondary) }
                     SettingsRow("运行方式") { Text("本地菜单栏应用").foregroundStyle(.secondary) }
                 } header: {
-                    settingsHeading("Loom", subtitle: "通过快捷键和菜单栏，让当前窗口快速就位。")
+                    VStack(spacing: 0) {
+                        Image(nsImage: NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath))
+                            .resizable()
+                            .interpolation(.high)
+                            .scaledToFit()
+                            .frame(width: 80, height: 80)
+                            .accessibilityHidden(true)
+                        Text("Loom")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .padding(.top, 16)
+                        Text("版本 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0")")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 4)
+                        Text("窗口随心，布局从容")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 16)
+                    }
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 16)
+                    .padding(.bottom, 20)
+                    .textCase(nil)
                 }
             }
             if !model.message.isEmpty {

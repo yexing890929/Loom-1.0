@@ -142,7 +142,7 @@ private final class PaletteGridItem: NSCollectionViewItem {
         updateStyle()
     }
     private func updateStyle() {
-        box.borderColor = highlightState == .asDropTarget ? .controlAccentColor : .separatorColor
+        box.borderColor = highlightState == .asDropTarget ? .labelColor : .separatorColor
         box.fillColor = .controlBackgroundColor
         icon.contentTintColor = hiddenAction ? .disabledControlTextColor : .labelColor
     }
