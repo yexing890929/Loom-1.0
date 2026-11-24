@@ -135,6 +135,28 @@ LOOM_SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk ./scripts/build
 
 日常使用应启动完整应用包。`swift run` 不适合验证辅助功能权限与登录启动；修改源码后需要重新构建并重启应用，运行中的版本不会自动更新。
 
+### 本地测试版 DMG
+
+在项目目录运行以下命令，会先构建应用，再生成压缩的只读磁盘映像：
+
+```sh
+./scripts/package-dmg.sh
+```
+
+需要指定 SDK 时：
+
+```sh
+LOOM_SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk ./scripts/package-dmg.sh
+```
+
+版本号从应用的 `Info.plist` 自动读取。当前输出为 `dist/Loom-1.0.0.dmg`，同时生成 SHA-256 校验文件。安装窗口为 600×400 pt 内容区，左侧是 Loom，右侧是指向 `/Applications` 的快捷方式，中间显示拖拽方向箭头，底部显示 slogan。Loom 使用应用包内的现有图标，Applications 使用系统图标；背景素材与 Finder 布局配置作为隐藏文件随映像打包。
+
+打开后，将 Loom 拖到 Applications，推出映像，再从应用程序目录启动并授权。覆盖已有安装前先退出 Loom。重新安装不会清除本机的设置与首次引导状态。
+
+打包时会临时挂载可写映像，通过 Finder 保存窗口尺寸、背景与图标位置，再转换为只读压缩映像。首次运行可能需要允许终端控制 Finder；脚本只配置临时安装卷，不修改已有 Finder 窗口。此步骤需要已登录的 macOS 图形会话。
+
+该包使用临时签名，未完成 Developer ID 签名和 Apple 公证，仅用于本地测试，不作为公开发布包。应用与构建机器架构相同，并非 Universal 包。打包过程不会安装应用、修改已有授权或上传文件。
+
 ### 图标与引导素材
 
 - **应用图标**：`icon/Loom.icon`。构建时通过 Xcode 的 `actool` 编译，打包 `Assets.car` 和兼容旧系统的 `Loom.icns`，保留图标文档的原生渲染设置。
