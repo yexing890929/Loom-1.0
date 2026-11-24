@@ -29,8 +29,27 @@ final class SettingsModel: ObservableObject {
     @Published var theme = AppTheme(rawValue: UserDefaults.standard.string(forKey: "theme") ?? "浅色") ?? .light {
         didSet { UserDefaults.standard.set(theme.rawValue, forKey: "theme"); onAppearanceChanged?() }
     }
-    @Published var paletteEnabled = UserDefaults.standard.object(forKey: "paletteEnabled") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(paletteEnabled, forKey: "paletteEnabled"); onPaletteChanged?() }
+    @Published private(set) var paletteEnabled = false
+    private let palettePermission = PalettePermissionState(trusted: WindowManager.trusted)
+    var onAuthorizationRequested: (() -> Void)?
+    var onOpenPermissionSettings: (() -> Void)?
+    func refreshPermission(_ granted: Bool) {
+        trusted = granted
+        palettePermission.updatePermission(granted)
+        syncPalettePermission()
+    }
+    func setPaletteEnabled(_ enabled: Bool) {
+        refreshPermission(WindowManager.trusted)
+        let needsAuthorization = palettePermission.request(enabled)
+        syncPalettePermission()
+        if needsAuthorization { onAuthorizationRequested?() }
+    }
+    func cancelAuthorization() { palettePermission.cancelAuthorization() }
+    private func syncPalettePermission() {
+        let enabled = palettePermission.enabled
+        guard paletteEnabled != enabled else { return }
+        paletteEnabled = enabled
+        onPaletteChanged?()
     }
     @Published var paletteDelay = UserDefaults.standard.object(forKey: "paletteDelay") as? Double ?? 0.3 {
         didSet { UserDefaults.standard.set(paletteDelay, forKey: "paletteDelay"); onPaletteChanged?() }
@@ -49,7 +68,7 @@ final class SettingsModel: ObservableObject {
     var onAppearanceChanged: (() -> Void)?
     let shortcuts: Shortcuts
     var monitor: Any?
-    init(_ shortcuts: Shortcuts) { self.shortcuts = shortcuts }
+    init(_ shortcuts: Shortcuts) { self.shortcuts = shortcuts; syncPalettePermission() }
     func record(_ action: Action) {
         stopRecording(); recording = action; message = "请按下快捷键，Esc 取消。"
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -132,7 +151,7 @@ struct SettingsView: View {
             case .palette:
                 Section {
                     SettingsRow("绿点悬浮面板") {
-                        Toggle("绿点悬浮面板", isOn: $model.paletteEnabled).labelsHidden().toggleStyle(.switch)
+                        Toggle("绿点悬浮面板", isOn: Binding(get: { model.paletteEnabled }, set: { model.setPaletteEnabled($0) })).labelsHidden().toggleStyle(.switch)
                     }
                     SettingsRow("悬停延迟") {
                         Slider(value: $model.paletteDelay, in: 0.15...1, step: 0.05).frame(width: 160)
@@ -186,7 +205,9 @@ struct SettingsView: View {
                 Section {
                     SettingsRow("辅助功能") { Text(model.trusted ? "已授权" : "未授权").foregroundStyle(.secondary) }
                     SettingsRow("系统权限") {
-                        Button("打开系统设置") { WindowManager.openPermissionSettings() }
+                        Button(model.trusted ? "打开系统设置" : "前往授权") {
+                            model.onOpenPermissionSettings?()
+                        }
                             .fixedSize()
                     }
                 } header: {
@@ -206,7 +227,7 @@ struct SettingsView: View {
         }.formStyle(.grouped)
             .frame(minWidth: 550, minHeight: 520)
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                model.trusted = WindowManager.trusted
+                model.refreshPermission(WindowManager.trusted)
                 model.login = SMAppService.mainApp.status == .enabled
             }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in model.stopRecording() }
@@ -327,7 +348,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     var status: NSStatusItem!
     var window: NSWindow?
     var menuTarget: AXUIElement?
+    private var pendingMenuAction: Action?
     var permissionOnboarding: PermissionOnboardingController?
+    private lazy var permissionMonitor = PermissionOnboardingModel(onReturnWithoutPermission: { [weak self] in
+        self?.settings.cancelAuthorization()
+    }) { [weak self] granted in
+        self?.settings.refreshPermission(granted)
+    }
+    private func requestAuthorization() {
+        let alert = NSAlert()
+        alert.messageText = "允许 Loom 管理窗口"
+        alert.informativeText = "Loom 需要辅助功能权限来移动窗口和调整大小，不读取窗口内容。请在系统设置的辅助功能中开启 Loom，授权后重新选择窗口布局。"
+        alert.addButton(withTitle: "前往授权")
+        alert.addButton(withTitle: "稍后设置")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            permissionMonitor.authorize()
+        } else {
+            settings.cancelAuthorization()
+        }
+    }
+    private func presentInitialOnboarding() {
+        let guide = PermissionOnboardingController(onAuthorizationEnded: { [weak self] in
+            self?.settings.cancelAuthorization()
+        }) { [weak self] granted in self?.settings.refreshPermission(granted) }
+        permissionOnboarding = guide
+        guide.present()
+    }
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -348,6 +395,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         status.button?.target = self
         status.button?.action = #selector(toggleQuickPanel)
         palette.perform = { [weak self] action, window in self?.run(action, target: window) }
+        settings.onAuthorizationRequested = { [weak self] in self?.requestAuthorization() }
+        settings.onOpenPermissionSettings = { [weak self] in
+            guard let self else { return }
+            if WindowManager.trusted { WindowManager.openPermissionSettings() }
+            else { self.permissionMonitor.authorize() }
+        }
+        permissionMonitor.start()
         settings.onPaletteChanged = { [weak self] in self?.configurePalette() }
         settings.onAppearanceChanged = { [weak self] in self?.applyAppearance() }
         applyAppearance()
@@ -369,9 +423,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             dismissed: UserDefaults.standard.bool(forKey: PermissionOnboardingPolicy.dismissedKey),
             trusted: WindowManager.trusted
         ) {
-            let guide = PermissionOnboardingController { [weak self] trusted in self?.settings.trusted = trusted }
-            permissionOnboarding = guide
-            guide.present()
+            presentInitialOnboarding()
         } else if !failures.isEmpty { showSettings() }
         UserDefaults.standard.set(true, forKey: "hasLaunched")
     }
@@ -461,9 +513,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         for item in menu.items { item.image?.size = NSSize(width: 16, height: 16) }
         // Native menu tracking supplies material, corner radius, selection, keyboard
         // navigation, dismissal and screen-edge constraints as one system surface.
+        pendingMenuAction = nil
         palette.menuTracking = true
-        defer { palette.menuTracking = false }
         menu.popUp(positioning: nil, at: NSPoint(x: button.bounds.minX - 10, y: button.bounds.minY - 4), in: button)
+        palette.menuTracking = false
+        // Menu actions fire inside AppKit's tracking loop. Only invoke another
+        // application's menus after this popup has fully finished tracking.
+        let selected = pendingMenuAction
+        let target = menuTarget
+        pendingMenuAction = nil
+        menuTarget = nil
+        if let selected {
+            DispatchQueue.main.async { [weak self] in self?.run(selected, target: target) }
+        }
     }
     private func layoutMenuIcon(for action: Action) -> NSImage {
         let image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { _ in
@@ -531,9 +593,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
     @objc private func selectLayout(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String, let action = Action(rawValue: name) else { return }
-        run(action, target: menuTarget)
+        pendingMenuAction = action
     }
     func run(_ action: Action, target: AXUIElement?) {
+        settings.refreshPermission(WindowManager.trusted)
+        guard settings.trusted else { requestAuthorization(); return }
         if action == .gridSelection {
             DispatchQueue.main.async { [weak self] in self?.showSelectionGrid(target) }
         } else if action.isNativeArrangement {
@@ -552,13 +616,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
     }
     private func showWindowError(_ error: Error) {
+        guard WindowManager.trusted else { requestAuthorization(); return }
         let alert = NSAlert()
         alert.messageText = "暂时无法调整窗口"
         alert.informativeText = error.localizedDescription
         alert.addButton(withTitle: "知道了")
-        if !WindowManager.trusted { alert.addButton(withTitle: "打开系统设置") }
         NSApp.activate(ignoringOtherApps: true)
-        if alert.runModal() == .alertSecondButtonReturn { WindowManager.openPermissionSettings() }
+        alert.runModal()
     }
     private lazy var selectionGrid = SelectionGridController()
     private func showSelectionGrid(_ target: AXUIElement?) {
@@ -608,12 +672,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             w.standardWindowButton(.zoomButton)?.isEnabled = false
              w.isReleasedWhenClosed = false; w.delegate = self; w.center(); window = w
         }
-        settings.trusted = WindowManager.trusted
+        settings.refreshPermission(WindowManager.trusted)
         NSApp.activate(ignoringOtherApps: true); window?.makeKeyAndOrderFront(nil)
     }
     func windowWillClose(_ notification: Notification) { settings.stopRecording() }
     func applicationWillTerminate(_ notification: Notification) {
         selectionGrid.dismiss()
+        permissionMonitor.stop()
         permissionOnboarding?.close()
         palette.dismiss()
     }

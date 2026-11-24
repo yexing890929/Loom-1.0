@@ -4,7 +4,7 @@ import SwiftUI
 enum PermissionOnboardingPolicy {
     static let dismissedKey = "permissionOnboardingDismissedV1"
     static func shouldPresent(hasLaunched: Bool, dismissed: Bool, trusted: Bool) -> Bool {
-        !dismissed && (!hasLaunched || !trusted)
+        !dismissed && !hasLaunched
     }
 }
 
@@ -15,12 +15,15 @@ final class PermissionOnboardingModel: ObservableObject {
     private let onTrustChanged: (Bool) -> Void
     private let permission: () -> Bool
     private let openSettings: () -> Void
+    private let onReturnWithoutPermission: () -> Void
 
     init(permission: @escaping () -> Bool = { WindowManager.trusted },
          openSettings: @escaping () -> Void = { WindowManager.openPermissionSettings() },
+         onReturnWithoutPermission: @escaping () -> Void = {},
          onTrustChanged: @escaping (Bool) -> Void) {
         self.permission = permission
         self.openSettings = openSettings
+        self.onReturnWithoutPermission = onReturnWithoutPermission
         trusted = permission()
         self.onTrustChanged = onTrustChanged
     }
@@ -28,7 +31,13 @@ final class PermissionOnboardingModel: ObservableObject {
         stop()
         refresh()
         activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.refresh()
+            guard let self else { return }
+            let wasAuthorizing = self.check != nil
+            self.refresh()
+            if wasAuthorizing, !self.trusted {
+                self.check?.invalidate(); self.check = nil
+                self.onReturnWithoutPermission()
+            }
         }
     }
     func authorize() {
@@ -163,7 +172,9 @@ private struct OnboardingPrimaryButtonStyle: ButtonStyle {
 
 final class PermissionOnboardingController: NSWindowController, NSWindowDelegate {
     private let model: PermissionOnboardingModel
-    init(onTrustChanged: @escaping (Bool) -> Void) {
+    private let onAuthorizationEnded: () -> Void
+    init(onAuthorizationEnded: @escaping () -> Void = {}, onTrustChanged: @escaping (Bool) -> Void) {
+        self.onAuthorizationEnded = onAuthorizationEnded
         model = PermissionOnboardingModel(onTrustChanged: onTrustChanged)
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
@@ -185,6 +196,7 @@ final class PermissionOnboardingController: NSWindowController, NSWindowDelegate
     }
     func windowWillClose(_ notification: Notification) {
         model.stop()
+        onAuthorizationEnded()
         UserDefaults.standard.set(true, forKey: PermissionOnboardingPolicy.dismissedKey)
     }
 }
